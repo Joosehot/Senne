@@ -1,0 +1,1 @@
+fetch the file "remote.txt", retry 4 times, waiting 500ms between attempts, and if it fails, give up

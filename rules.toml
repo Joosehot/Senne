@@ -1,0 +1,189 @@
+# Senne pattern weights and tradeoffs.
+#
+# Every implementation choice is scored on three axes:
+#   safety  - no panics, no silent data loss, errors reach someone
+#   brevity - less code, fewer moving parts
+#   perf    - fewer allocations, less work, more parallelism
+# A clause's score is  weight * (axes . profile), where the profile starts at
+# [profile] and is shifted by the modifiers the sentence used on that clause
+# ("safely", "quickly", "simply"). This is the equivalent of FeelRight's
+# tension curve: the words say which tradeoff to spend. No numbers live in
+# rule code.
+
+[search]
+beam = 16
+
+[profile]
+safety = 1.0
+brevity = 0.6
+perf = 0.4
+
+[modifiers.safely]
+safety = 1.5
+brevity = -0.3
+
+[modifiers.quickly]
+perf = 1.5
+
+[modifiers.simply]
+safety = -0.5
+brevity = 1.5
+
+# ---- Error strategies (chosen for every fallible clause) -------------------
+
+[strategies.propagate]      # value?  (makes run() return Result)
+safety = 0.9
+brevity = 0.8
+perf = 0.8
+
+[strategies.expect]         # value.expect("...")  (panics)
+safety = 0.2
+brevity = 0.9
+perf = 0.8
+
+[strategies.or_default]     # value.unwrap_or(fallback)  (only when asked for)
+safety = 0.7
+brevity = 0.9
+perf = 0.8
+
+[strategies.handle]         # match + the sentence's "if it fails ..." clauses
+safety = 0.9
+brevity = 0.3
+perf = 0.8
+
+# ---- Retry ------------------------------------------------------------------
+
+[retry]
+default_times = 3
+base_delay_ms = 100     # first backoff delay; doubles per attempt
+fixed_delay_ms = 100    # delay when no backoff and no explicit wait
+
+[retry.styles.loop_fixed]
+safety = 0.6
+brevity = 0.5
+perf = 0.7
+
+[retry.styles.loop_backoff]
+safety = 0.9
+brevity = 0.4
+perf = 0.7
+
+[retry.styles.helper_fixed]
+safety = 0.6
+brevity = 0.7
+perf = 0.7
+
+[retry.styles.helper_backoff]
+safety = 0.9
+brevity = 0.6
+perf = 0.7
+
+# ---- Judges: rules over the whole program ------------------------------------
+# breakable judges are forgiven by `discount * brevity share` of the clause
+# profile, the way FeelRight forgives breakable rules where tension is wanted.
+
+[judges.no_panic]           # a clause that can panic on bad input
+weight = 0.6
+breakable = true
+discount = 0.8
+
+[judges.result_signature]   # cost of making run() return Result, x mean brevity
+weight = 0.5
+breakable = false
+discount = 0.0
+
+[judges.consistent_errors]  # mixing `?` and `.expect()` in one function
+weight = 0.5
+breakable = false
+discount = 0.0
+
+[judges.helper_reuse]       # a retry helper used once is overhead; twice pays off
+weight = 0.3
+breakable = false
+discount = 0.0
+
+# ---- Patterns -----------------------------------------------------------------
+
+[rules.read_file]
+weight = 1.0
+variants.to_string = { safety = 0.8, brevity = 0.9, perf = 0.6 }
+
+[rules.read_lines]
+weight = 1.0
+variants.collect = { safety = 0.8, brevity = 0.8, perf = 0.4 }
+variants.buffered = { safety = 0.8, brevity = 0.3, perf = 0.9 }
+
+[rules.write_file]
+weight = 1.0
+variants.plain = { safety = 0.6, brevity = 0.9, perf = 0.7 }
+variants.atomic = { safety = 1.0, brevity = 0.3, perf = 0.5 }
+
+[rules.env_var]
+weight = 1.0
+variants.var = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[rules.parse_number]
+weight = 1.0
+variants.parse = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[rules.create_dir]
+weight = 1.0
+variants.create_dir_all = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[rules.list_dir]
+weight = 1.0
+variants.read_dir = { safety = 0.8, brevity = 0.6, perf = 0.6 }
+
+[rules.for_each]
+weight = 1.0
+variants.for_loop = { safety = 0.8, brevity = 0.8, perf = 0.6 }
+
+[rules.parallel]
+weight = 1.0
+variants.scoped_fixed = { safety = 0.8, brevity = 0.4, perf = 0.9 }
+variants.scoped_auto = { safety = 0.8, brevity = 0.3, perf = 1.0 }
+
+[rules.sum]
+weight = 1.0
+variants.iter_sum = { safety = 0.7, brevity = 0.9, perf = 0.9 }
+
+[rules.count]
+weight = 1.0
+variants.len = { safety = 0.9, brevity = 0.9, perf = 0.9 }
+
+[rules.sort]
+weight = 1.0
+variants.stable = { safety = 0.9, brevity = 0.8, perf = 0.7 }
+variants.unstable = { safety = 0.8, brevity = 0.8, perf = 0.9 }
+
+[rules.dedupe]
+weight = 1.0
+variants.sorted_dedup = { safety = 1.0, brevity = 1.0, perf = 1.0 }   # only right after a sort
+variants.keep_order = { safety = 1.0, brevity = 0.4, perf = 0.6 }
+variants.sort_dedup = { safety = 0.4, brevity = 0.8, perf = 0.9 }     # reorders
+
+[rules.skip_blank]
+weight = 1.0
+variants.filter = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[rules.trim]
+weight = 1.0
+variants.trim = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[rules.print]
+weight = 1.0
+variants.display = { safety = 0.8, brevity = 0.7, perf = 0.7 }
+variants.each_line = { safety = 0.8, brevity = 0.5, perf = 0.6 }
+variants.debug = { safety = 0.4, brevity = 0.9, perf = 0.8 }
+
+[rules.log]
+weight = 1.0
+variants.eprintln = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[rules.wait]
+weight = 1.0
+variants.sleep = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[rules.retry_helper]        # "retry this ..." with nothing to retry: emit the helper itself
+weight = 1.0
+variants.helper = { safety = 0.8, brevity = 0.8, perf = 0.8 }

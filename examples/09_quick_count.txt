@@ -1,0 +1,1 @@
+quickly read the lines of "big.log", skip blank lines and count them, then print the result

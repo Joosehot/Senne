@@ -1,0 +1,1 @@
+read the lines of "names.txt", sort them, remove duplicates, then safely write them to "names.txt"

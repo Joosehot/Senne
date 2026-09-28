@@ -1,0 +1,1 @@
+read the file "template.html", create the directory "out" if missing, then atomically write it to "out/index.html"

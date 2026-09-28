@@ -1,0 +1,1 @@
+read the file "settings.toml", and if it fails, log the error and continue

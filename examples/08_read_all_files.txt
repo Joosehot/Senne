@@ -1,0 +1,1 @@
+list the files in "logs", then for each file read it, and if it fails, log the error and continue. After that, count them and print it.

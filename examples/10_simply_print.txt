@@ -1,0 +1,1 @@
+simply read the file "notes.txt" and print it

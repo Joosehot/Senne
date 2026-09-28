@@ -1,0 +1,1 @@
+read the lines of "prices.txt", spawn 8 workers, each trims the line and parses it as a decimal, and if it fails, log the error and continue. After that, sum them and print the total.

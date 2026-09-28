@@ -1,0 +1,1 @@
+load the env var LOG_LEVEL or "info" and print it

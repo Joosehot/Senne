@@ -1,0 +1,1 @@
+read the file "numbers.txt", for each line skip blank lines, parse it as an integer, and if it fails, log the error and continue. Then sum them and print the total.

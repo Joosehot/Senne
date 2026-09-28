@@ -1,0 +1,1 @@
+read the lines of "emails.txt", trim them, skip blank lines, remove duplicates and print them
