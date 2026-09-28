@@ -93,4 +93,4 @@ General-purpose English, arbitrary business logic, and type inference across a w
 
 ## License
 
-Proprietary, all rights reserved. See [LICENSE](LICENSE). Rust code that Senne generates belongs to whoever ran it.
+MIT, see [LICENSE](LICENSE). Rust code that Senne generates belongs to whoever ran it.

@@ -3,7 +3,7 @@ name = "senne"
 version = "0.1.0"
 edition = "2021"
 description = "Deterministic natural-language-to-Rust engine: lexicon + hand-crafted patterns + beam search"
-license-file = "LICENSE"
+license = "MIT"
 publish = false
 
 [lib]
