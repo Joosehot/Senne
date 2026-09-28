@@ -90,3 +90,7 @@ Run `SENNE_BLESS=1 cargo test` to accept intended output changes.
 ## Non-goals for v0
 
 General-purpose English, arbitrary business logic, and type inference across a whole codebase. The generated code uses std only.
+
+## License
+
+Proprietary, all rights reserved. See [LICENSE](LICENSE). Rust code that Senne generates belongs to whoever ran it.
