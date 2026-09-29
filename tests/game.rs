@@ -179,7 +179,8 @@ fn modifiers_change_choices() {
 #[test]
 fn a_rules_file_changes_the_code() {
     // Same sentence, weights that make brevity win everywhere.
-    let terse = DEFAULT_RULES.replace(
+    // (rules.toml may be checked out with CRLF line endings)
+    let terse = DEFAULT_RULES.replace("\r\n", "\n").replace(
         "[game.profile]\nsafety = 1.0\nbrevity = 0.6\nperf = 0.4",
         "[game.profile]\nsafety = 0.1\nbrevity = 2.0\nperf = 0.1",
     );
