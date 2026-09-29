@@ -1,0 +1,11 @@
+At the start, the player has 3 lives, show "TIME {countdown 60}" at the top and show "LIVES {lives}  SCORE {score}" at the top left.
+Move the player with the arrow keys at 7 units per second and face where it moves.
+The player shoots forward with space at 16 units per second every 0.25 seconds, using "shot", with the shoot sound.
+Each zombie moves toward the player at 2.3 units per second, speeding up by 1.2 percent per second.
+Each ghost moves toward the player at 1.8 units per second within 9 units.
+Each blob wanders at 2 units per second, turning every 1.5 seconds.
+When a shot hits a zombie, destroy both, add 1 to the score and play the explosion sound.
+When a shot hits a blob, destroy both and add 2 points.
+When the player touches an enemy, the player loses a life, safe for 1.5 seconds.
+When the time reaches 60 seconds, the player wins "YOU SURVIVED".
+When the player presses r, restart the game.

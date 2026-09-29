@@ -187,3 +187,224 @@ variants.sleep = { safety = 0.8, brevity = 0.8, perf = 0.8 }
 [rules.retry_helper]        # "retry this ..." with nothing to retry: emit the helper itself
 weight = 1.0
 variants.helper = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+# ==== Game domain (senne::game) ================================================
+# The same idea for game code: every code-level choice has safety / brevity /
+# perf axes, the profile is [game.profile] shifted by the sentence's modifiers
+# ([modifiers] above), and judges score choices across the whole game.
+# [game.tuning] holds every constant the generated game code uses; pattern
+# code only names these keys. Unknown keys, patterns or variants are errors.
+
+[game.profile]
+safety = 1.0
+brevity = 0.6
+perf = 0.4
+
+[game.tuning]
+smoothing_rate = 12.0       # "smoothly": velocity eases toward the target (1/s)
+jump_buffer = 0.12          # buffered jump: a press this early before landing still jumps (s)
+coyote_time = 0.1           # buffered jump: still jump this long after leaving the ground (s)
+jump_release_gravity = 40.0 # "higher while held": extra fall while rising without the key (u/s^2)
+walk_speed = 0.1            # "while it walks": this fast counts as walking (u/s)
+shot_cooldown = 0.25        # player shots without "every N seconds" (s)
+shot_size = 0.4             # projectile size (u)
+shot_offset = 0.8           # projectiles start this far from the shooter (u)
+projectile_range = 40.0     # projectiles farther than this from the player are removed (u)
+stomp_height = 0.25         # "lands on": player centre this far above the other's (u)
+squash_amount = 0.3         # "squash it"
+chase_dead_zone = 0.1       # sideways chasers stop inside this x distance (u)
+wander_jitter = 0.5         # own wander timers wait turn x (1 +- jitter)
+safe_seconds = 1.0          # "loses a life" without "safe for N seconds" (s)
+lives = 3                   # "loses a life" without "the player has N lives"
+blink_rate = 12.0           # blinks per second while safe
+blink_dim = 0.35            # brightness on the dark half of a blink
+music_bpm = 120.0           # "play the music" without a tempo
+music_wave = "square"       # "play the music" without a wave
+hud_size = 24.0             # HUD text size (px)
+banner_size = 44.0          # win/lose banner size (px)
+line_gap = 0.05             # HUD lines at the same place stack this far apart (screen fraction)
+top_left = [0.02, 0.03]     # text places (fractions of the screen from the top left)
+top_right = [0.78, 0.03]
+top = [0.42, 0.03]
+middle = [0.36, 0.45]
+bottom = [0.40, 0.92]
+banner = [0.30, 0.40]
+
+# ---- Game judges ---------------------------------------------------------------
+
+[game.judges.helper_reuse]  # win/lose/hurt: a helper used once, the same block inlined twice, or mixing
+weight = 0.3
+breakable = false
+discount = 0.0
+
+[game.judges.hoist_reuse]   # player position read once per frame pays from two loops; mixing costs
+weight = 0.3
+breakable = false
+discount = 0.0
+
+# ---- Game patterns: standing behaviours ------------------------------------------
+
+[game.rules.move_player]
+weight = 1.0
+variants.axis = { safety = 0.8, brevity = 0.8, perf = 0.8 }          # sideways: one axis
+variants.raw = { safety = 0.4, brevity = 0.9, perf = 0.8 }           # diagonals faster
+variants.normalized = { safety = 0.9, brevity = 0.6, perf = 0.7 }    # same speed every way
+
+[game.rules.jump]
+weight = 1.0
+variants.on_press = { safety = 0.6, brevity = 0.9, perf = 0.8 }
+variants.buffered = { safety = 1.0, brevity = 0.4, perf = 0.7 }      # jump buffer + coyote time
+
+[game.rules.player_shoot]
+weight = 1.0
+variants.countdown = { safety = 0.9, brevity = 0.7, perf = 0.8 }
+variants.timestamp = { safety = 0.7, brevity = 0.8, perf = 0.8 }
+
+[game.rules.chase]
+weight = 1.0
+variants.hoisted = { safety = 0.8, brevity = 0.7, perf = 1.0 }
+variants.per_loop = { safety = 0.8, brevity = 0.8, perf = 0.6 }
+
+[game.rules.patrol]
+weight = 1.0
+variants.bounds = { safety = 0.9, brevity = 0.5, perf = 0.7 }        # stored start, exact edges
+variants.sine = { safety = 0.6, brevity = 0.9, perf = 0.8 }          # no state, may drift
+
+[game.rules.fly]
+weight = 1.0
+variants.velocity = { safety = 0.6, brevity = 0.9, perf = 0.9 }
+variants.anchored = { safety = 0.9, brevity = 0.5, perf = 0.7 }
+
+[game.rules.wander]
+weight = 1.0
+variants.shared_timer = { safety = 0.7, brevity = 0.8, perf = 0.8 }
+variants.own_timer = { safety = 0.8, brevity = 0.5, perf = 0.6 }
+
+[game.rules.march]
+weight = 1.0
+variants.move_by = { safety = 0.9, brevity = 0.7, perf = 0.7 }
+variants.velocity = { safety = 0.7, brevity = 0.7, perf = 0.8 }
+
+[game.rules.enemy_shoot]
+weight = 1.0
+variants.hoisted = { safety = 0.8, brevity = 0.7, perf = 1.0 }
+variants.per_loop = { safety = 0.8, brevity = 0.8, perf = 0.6 }
+variants.fixed = { safety = 0.8, brevity = 0.8, perf = 0.8 }        # straight up/down: no player read
+
+[game.rules.animate]
+weight = 1.0
+variants.clock = { safety = 0.8, brevity = 0.7, perf = 0.6 }
+variants.engine = { safety = 0.8, brevity = 0.8, perf = 0.9 }
+
+# ---- Game patterns: triggers ------------------------------------------------------
+
+[game.rules.start]
+weight = 1.0
+variants.init = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.every_frame]
+weight = 1.0
+variants.update = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.every]
+weight = 1.0
+variants.countdown = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.touch]
+weight = 1.0
+variants.has_tag = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.hit]
+weight = 1.0
+variants.has_tag = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.lands_on]
+weight = 1.0
+variants.above = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.none_left]
+weight = 1.0
+variants.edge = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.reaches]
+weight = 1.0
+variants.edge = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.falls_below]
+weight = 1.0
+variants.check = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.key_press]
+weight = 1.0
+variants.pressed = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+# ---- Game patterns: actions ---------------------------------------------------------
+
+[game.rules.destroy]
+weight = 1.0
+variants.despawn = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.score]
+weight = 1.0
+variants.add = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.lives]
+weight = 1.0
+variants.set = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.hurt]
+weight = 1.0
+variants.inline = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+variants.helper = { safety = 0.9, brevity = 0.6, perf = 0.8 }
+
+[game.rules.win]
+weight = 1.0
+variants.inline = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+variants.helper = { safety = 0.9, brevity = 0.6, perf = 0.8 }
+
+[game.rules.lose]
+weight = 1.0
+variants.inline = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+variants.helper = { safety = 0.9, brevity = 0.6, perf = 0.8 }
+
+[game.rules.sound]
+weight = 1.0
+variants.effect = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.music]
+weight = 1.0
+variants.play = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.show]
+weight = 1.0
+variants.once = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+variants.every_frame = { safety = 0.8, brevity = 0.9, perf = 0.5 }   # live HUD: rewrite each frame
+variants.on_change = { safety = 0.8, brevity = 0.5, perf = 0.9 }     # live HUD: only when it changes
+
+[game.rules.bounce]
+weight = 1.0
+variants.set_vel = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.back_to_start]
+weight = 1.0
+variants.reset = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.squash]
+weight = 1.0
+variants.tween = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.play_anim]
+weight = 1.0
+variants.oneshot = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.restart]
+weight = 1.0
+variants.request = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.next_wave]
+weight = 1.0
+variants.respawn = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.random_shot]
+weight = 1.0
+variants.pick = { safety = 0.8, brevity = 0.8, perf = 0.8 }

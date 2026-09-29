@@ -1,0 +1,12 @@
+At the start, show "GEMS {score} / 10" at the top left and play the music "E4 G4 B4 E5" at 110 beats per minute as a triangle wave.
+Move the player across the ground with the arrow keys at 7 units per second and face where it moves, smoothly.
+The player jumps with space at 9 units per second with the jump sound.
+Each skeleton moves toward the player across the ground at 2.5 units per second within 10 units.
+Each spider wanders across the ground at 3 units per second, turning every 1.2 seconds.
+Each ghost shoots at the player at 6 units per second every 2 seconds within 12 units, using "bomb".
+When the player touches a gem, destroy it, add 1 to the score, play the pickup sound and play the spin animation on the player.
+When a bomb hits the player, destroy the bomb and the player loses.
+When the player touches a skeleton, the player loses "CAUGHT".
+When no gems are left, the player wins.
+When the player falls below -10, the player goes back to the start.
+When the player presses enter, restart the game.

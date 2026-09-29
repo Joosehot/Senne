@@ -1,0 +1,10 @@
+Simply move the player with the arrow keys at 7 units per second.
+Safely, the player jumps with space at 12 units per second.
+Quickly, each zombie moves toward the player at 2 units per second.
+Simply, each slime patrols 2 units to each side at 1.5 units per second.
+Safely, each bat flies in a wave 1 units high at 1.5 cycles per second.
+Each blob wanders at 2 units per second, turning every 2 seconds, safely.
+Quickly, at the start, show "SCORE {score}" at the top left.
+When the player touches a coin, destroy it and add 1 to the score.
+When the player touches a zombie, simply, the player loses.
+When the player touches a slime, the player loses.

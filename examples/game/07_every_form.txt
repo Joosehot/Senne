@@ -1,0 +1,37 @@
+Move the player sideways with the arrow keys at 7.5 units per second and face where it moves.
+Move the player with the arrow keys at 7 units per second.
+Move the player across the ground with the arrow keys at 7 units per second, smoothly, within 12 units.
+The player jumps with space at 14.5 units per second, twice at 12 units per second, higher while held, with the jump sound.
+The player shoots up with space at 22 units per second every 0.3 seconds, using "shot", with the shoot sound.
+The player shoots forward across the ground with x at 15 units per second.
+The player shoots down with z at 10 units per second every 0.5 seconds.
+Each zombie moves toward the player at 2.3 units per second.
+Each zombie moves toward the player sideways at 2 units per second within 9 units, speeding up by 1.2 percent per second.
+Each skeleton moves toward the player across the ground at 2 units per second.
+Each slime patrols 3 units to each side at 2.2 units per second.
+Each bat flies in a wave 1.2 units high at 2 cycles per second.
+Each blob wanders at 2 units per second, turning every 1.5 seconds.
+Each spider wanders across the ground at 2 units per second, turning every 1 seconds.
+Each alien marches sideways at 1.4 units per second within 12.5 units, stepping down 0.6 units, up to 2.5 times as fewer are left, 15 percent faster each wave.
+Each ghost shoots at the player at 6 units per second every 2 seconds within 10 units, using "bomb".
+Each saw shoots down at 4 units per second every 3 seconds, with the laser sound.
+Animate each slime with "slime_1" and "slime_2" at 4 frames per second.
+Animate the player with "hero_1" and "hero_2" at 8 frames per second while it walks.
+At the start, the player has 3 lives, play the music "C4 E4 G4 C5" at 132 beats per minute as a square wave and show "COINS {score} / 14" at the top left in "#ffffff".
+At the start, show "{lives} {wave} {time} {countdown 60} {left coin}" at the bottom.
+Every frame, show "T {time}" at the top right.
+Every 1.6 seconds, a random alien shoots down at 7 units per second.
+When the player touches a coin, destroy it, add 1 to the score and play the coin sound.
+When the player touches the door and no coins are left, the player wins.
+When a shot hits an alien, destroy the shot, destroy the alien and add 10 points.
+When a shot hits a bat, destroy both.
+When the player lands on a slime, squash it, bounce the player up at 11 units per second and play the jump animation on the player.
+When the player touches a slime, the player loses a life, safe for 1.5 seconds.
+When no aliens are left, start the next wave of aliens.
+When the score reaches 50, the player wins "LEVEL CLEAR".
+When the time reaches 60 seconds, the player loses "TIME UP".
+When the player falls below -12, the player loses a life and goes back to the start.
+When an alien falls below -6, destroy it and the player loses.
+When a bomb hits the player, destroy the bombs, squash the player and show "OUCH" in the middle.
+When the player touches a spike, the player loses "GAME OVER".
+When the player presses r, restart the game.

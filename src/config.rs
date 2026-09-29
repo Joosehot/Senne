@@ -78,6 +78,76 @@ pub struct Config {
     pub retry: RetryConfig,
     pub judges: BTreeMap<String, JudgeConfig>,
     pub rules: BTreeMap<String, RuleConfig>,
+    /// The game domain (`senne::game`): its own profile, tuning, rules and judges.
+    pub game: GameConfig,
+}
+
+/// `[game]`: everything `senne::game` reads. Pattern code names keys only.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GameConfig {
+    pub profile: Axes,
+    pub tuning: GameTuning,
+    pub judges: BTreeMap<String, JudgeConfig>,
+    pub rules: BTreeMap<String, RuleConfig>,
+}
+
+/// `[game.tuning]`: every constant the generated game code uses.
+/// Unknown keys are rejected so a typo fails at load time.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GameTuning {
+    /// "smoothly": velocity eases toward the target at this rate (per second).
+    pub smoothing_rate: f32,
+    /// Buffered jump: a press this long before landing still jumps (seconds).
+    pub jump_buffer: f32,
+    /// Buffered jump: the player may still jump this long after leaving the ground (seconds).
+    pub coyote_time: f32,
+    /// "higher while held": extra downward acceleration while rising without the key.
+    pub jump_release_gravity: f32,
+    /// "while it walks": speed that counts as walking (units per second).
+    pub walk_speed: f32,
+    /// Player shots without "every N seconds": time between shots (seconds).
+    pub shot_cooldown: f32,
+    /// Size of spawned projectiles (units).
+    pub shot_size: f32,
+    /// Projectiles spawn this far from the shooter's centre (units).
+    pub shot_offset: f32,
+    /// Projectiles farther than this from the player are removed (units).
+    pub projectile_range: f32,
+    /// "lands on": the player's centre must be this far above the other's (units).
+    pub stomp_height: f32,
+    /// "squash it": squash-and-stretch amount (0..0.9).
+    pub squash_amount: f32,
+    /// "moves toward the player sideways": no movement inside this x distance (units).
+    pub chase_dead_zone: f32,
+    /// "wanders", own timers: each turn waits turn x (1 +- jitter).
+    pub wander_jitter: f32,
+    /// "loses a life" without "safe for": seconds of safety afterwards.
+    pub safe_seconds: f32,
+    /// "loses a life" without "has N lives": starting lives.
+    pub lives: i64,
+    /// Blinks per second while safe.
+    pub blink_rate: f32,
+    /// Brightness of the player on the dark half of a blink (0..1).
+    pub blink_dim: f32,
+    /// "play the music" without "at N beats per minute".
+    pub music_bpm: f32,
+    /// "play the music" without "as a W wave".
+    pub music_wave: String,
+    /// HUD text size (pixels).
+    pub hud_size: f32,
+    /// Win/lose banner size (pixels).
+    pub banner_size: f32,
+    /// Vertical gap between HUD lines at the same place (fraction of the screen).
+    pub line_gap: f32,
+    /// Screen positions (fractions of width, height from the top left).
+    pub top_left: [f32; 2],
+    pub top_right: [f32; 2],
+    pub top: [f32; 2],
+    pub middle: [f32; 2],
+    pub bottom: [f32; 2],
+    pub banner: [f32; 2],
 }
 
 impl Config {
@@ -130,7 +200,116 @@ impl Config {
                 bail!("rules.toml: missing [judges.{}]", j.name());
             }
         }
+        self.validate_game()
+    }
+
+    /// The game domain is strict both ways: every pattern, variant and judge
+    /// the code names must be present, and nothing else may be (a misspelt
+    /// key would otherwise be silently ignored).
+    fn validate_game(&self) -> Result<()> {
+        let g = &self.game;
+        let patterns = crate::game::rules::registry();
+        for p in &patterns {
+            let Some(rc) = g.rules.get(p.name()) else {
+                bail!("rules.toml: missing [game.rules.{}]", p.name());
+            };
+            for v in p.all_variants() {
+                if !rc.variants.contains_key(*v) {
+                    bail!("rules.toml: missing variant game.rules.{}.variants.{v}", p.name());
+                }
+            }
+            for v in rc.variants.keys() {
+                if !p.all_variants().contains(&v.as_str()) {
+                    bail!("rules.toml: game.rules.{}.variants.{v} is not a variant of {}", p.name(), p.name());
+                }
+            }
+        }
+        for name in g.rules.keys() {
+            if !patterns.iter().any(|p| p.name() == name) {
+                bail!("rules.toml: [game.rules.{name}] is not a game pattern");
+            }
+        }
+        let judges = crate::game::rules::judges();
+        for j in &judges {
+            if !g.judges.contains_key(j.name()) {
+                bail!("rules.toml: missing [game.judges.{}]", j.name());
+            }
+        }
+        for name in g.judges.keys() {
+            if !judges.iter().any(|j| j.name() == name) {
+                bail!("rules.toml: [game.judges.{name}] is not a game judge");
+            }
+        }
+        let t = &g.tuning;
+        let positive = [
+            ("smoothing_rate", t.smoothing_rate),
+            ("jump_buffer", t.jump_buffer),
+            ("coyote_time", t.coyote_time),
+            ("walk_speed", t.walk_speed),
+            ("shot_cooldown", t.shot_cooldown),
+            ("shot_size", t.shot_size),
+            ("projectile_range", t.projectile_range),
+            ("safe_seconds", t.safe_seconds),
+            ("blink_rate", t.blink_rate),
+            ("music_bpm", t.music_bpm),
+            ("hud_size", t.hud_size),
+            ("banner_size", t.banner_size),
+        ];
+        for (k, v) in positive {
+            if !(v > 0.0) {
+                bail!("rules.toml: game.tuning.{k} must be > 0 (got {v})");
+            }
+        }
+        let non_negative = [
+            ("jump_release_gravity", t.jump_release_gravity),
+            ("shot_offset", t.shot_offset),
+            ("stomp_height", t.stomp_height),
+            ("chase_dead_zone", t.chase_dead_zone),
+            ("line_gap", t.line_gap),
+        ];
+        for (k, v) in non_negative {
+            if !(v >= 0.0) {
+                bail!("rules.toml: game.tuning.{k} must be >= 0 (got {v})");
+            }
+        }
+        for (k, v) in [("squash_amount", t.squash_amount), ("wander_jitter", t.wander_jitter), ("blink_dim", t.blink_dim)] {
+            if !(0.0..1.0).contains(&v) {
+                bail!("rules.toml: game.tuning.{k} must be in 0..1 (got {v})");
+            }
+        }
+        if t.lives < 1 {
+            bail!("rules.toml: game.tuning.lives must be at least 1");
+        }
+        if !crate::game::lexicon::WAVES.contains(&t.music_wave.as_str()) {
+            bail!("rules.toml: game.tuning.music_wave must be one of {:?}", crate::game::lexicon::WAVES);
+        }
+        for (k, p) in [
+            ("top_left", t.top_left),
+            ("top_right", t.top_right),
+            ("top", t.top),
+            ("middle", t.middle),
+            ("bottom", t.bottom),
+            ("banner", t.banner),
+        ] {
+            if !p.iter().all(|x| (0.0..=1.0).contains(x)) {
+                bail!("rules.toml: game.tuning.{k} must be screen fractions in 0..1");
+            }
+        }
         Ok(())
+    }
+
+    pub fn game_rule(&self, name: &str) -> &RuleConfig {
+        &self.game.rules[name]
+    }
+
+    pub fn game_judge(&self, name: &str) -> &JudgeConfig {
+        &self.game.judges[name]
+    }
+
+    /// Score of one game pattern variant under a profile.
+    pub fn game_variant_score(&self, rule: &str, variant: &str, profile: &Axes) -> f32 {
+        let rc = self.game_rule(rule);
+        rc.weight * rc.variants[variant].dot(profile)
     }
 
     pub fn rule(&self, name: &str) -> &RuleConfig {
@@ -156,6 +335,31 @@ mod tests {
     fn builtin_rules_load() {
         let cfg = Config::builtin();
         assert!(cfg.search.beam > 0);
+    }
+
+    #[test]
+    fn game_tuning_typo_is_rejected() {
+        let broken = DEFAULT_RULES.replace("stomp_height =", "stomp_hieght =");
+        let err = Config::parse(&broken).unwrap_err();
+        assert!(format!("{err:#}").contains("stomp_hieght"), "{err:#}");
+    }
+
+    #[test]
+    fn game_variant_typo_is_rejected() {
+        let broken = DEFAULT_RULES.replace("variants.on_press", "variants.on_pres");
+        assert!(Config::parse(&broken).is_err());
+    }
+
+    #[test]
+    fn unknown_game_rule_is_rejected() {
+        let broken = format!("{DEFAULT_RULES}\n[game.rules.teleport]\nweight = 1.0\nvariants.zap = {{ safety = 1.0 }}\n");
+        assert!(Config::parse(&broken).is_err());
+    }
+
+    #[test]
+    fn game_tuning_out_of_range_is_rejected() {
+        let broken = DEFAULT_RULES.replace("blink_dim = 0.35", "blink_dim = 3.5");
+        assert!(Config::parse(&broken).is_err());
     }
 
     #[test]

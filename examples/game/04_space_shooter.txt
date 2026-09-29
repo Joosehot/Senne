@@ -1,0 +1,13 @@
+At the start, the player has 3 lives, show "SCORE {score}" at the top left, show "WAVE {wave}" at the top right, show "LIVES {lives}" at the top and play the music "C3 C3 G2 G2" at 90 beats per minute as a saw wave.
+Move the player sideways with the arrow keys at 9 units per second within 11 units.
+The player shoots up with space at 22 units per second every 0.3 seconds, using "laser", with the laser sound.
+Each alien marches sideways at 1.4 units per second within 12.5 units, stepping down 0.6 units, up to 2.5 times as fewer are left, 15 percent faster each wave.
+Animate each alien with "alien_1" and "alien_2" at 2 frames per second.
+Every 1.2 seconds, a random alien shoots down at 7 units per second, using "bomb".
+When a shot hits an alien, destroy both, add 10 points and play the explosion sound.
+When a shot hits a shield, destroy the shot.
+When a bomb hits a shield, destroy both.
+When a bomb hits the player, destroy the bomb, the player loses a life, safe for 2 seconds.
+When no aliens are left, destroy the bombs and start the next wave of aliens.
+When an alien falls below -6, the player loses.
+When the player presses r, restart the game.

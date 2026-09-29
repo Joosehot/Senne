@@ -8,6 +8,7 @@ pub mod codegen;
 pub mod config;
 pub mod diagnose;
 pub mod explain;
+pub mod game;
 pub mod lexicon;
 pub mod model;
 pub mod parser;

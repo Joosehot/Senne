@@ -1,0 +1,12 @@
+At the start, show "KEYS {score} / 3" at the top left and show "KEYS LEFT {left key}" at the top left.
+Move the player sideways with the arrow keys at 6.5 units per second and face where it moves.
+The player jumps with space at 13 units per second with the jump sound.
+Each skeleton moves toward the player sideways at 2 units per second within 6 units.
+Animate each skeleton with "skeleton_1" and "skeleton_2" at 5 frames per second.
+When the player touches a key, destroy it, add 1 to the score and play the pickup sound.
+When the player touches the exit and no keys are left, the player wins "ESCAPED".
+When the player touches the exit, show "FIND THE KEYS FIRST" in the middle in "#ffcc00".
+When the player touches a skeleton, the player loses.
+When the player touches a spike, the player loses.
+When the player falls below -10, the player loses.
+When the player presses r, restart the game.

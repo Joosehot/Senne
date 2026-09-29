@@ -1,0 +1,14 @@
+At the start, the player has 3 lives, play the music "C4 E4 G4 C5 G4 E4 C4 -" at 132 beats per minute as a square wave, show "COINS {score} / 14" at the top left and show "LIVES {lives}" at the top right.
+Move the player sideways with the arrow keys at 7.5 units per second and face where it moves.
+The player jumps with space at 14.5 units per second, twice at 12 units per second, higher while held, with the jump sound.
+Animate the player with "hero_1" and "hero_2" at 8 frames per second while it walks.
+Each slime patrols 3 units to each side at 2.2 units per second.
+Animate each slime with "slime_1" and "slime_2" at 4 frames per second.
+Each bat flies in a wave 1.2 units high at 2 cycles per second.
+When the player touches a coin, destroy it, add 1 to the score and play the coin sound.
+When the player lands on a slime, destroy it, bounce the player up at 11 units per second, squash the player and play the bounce sound.
+When the player touches a slime, the player loses a life, safe for 1.5 seconds.
+When the player touches a bat, the player loses a life, safe for 1.5 seconds.
+When the player falls below -12, the player loses a life and goes back to the start.
+When the player touches the flag and no coins are left, the player wins "LEVEL CLEAR".
+When the player presses r, restart the game.
