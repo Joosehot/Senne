@@ -21,6 +21,7 @@ pub mod bite;
 pub mod bounce;
 pub mod chase;
 pub mod come_back;
+pub mod drawn;
 pub mod destroy;
 pub mod enemy_shoot;
 pub mod every;
@@ -32,6 +33,7 @@ pub mod hang;
 pub mod hit;
 pub mod hooked;
 pub mod hurt;
+pub mod jig;
 pub mod judges;
 pub mod jump;
 pub mod key_press;
@@ -386,6 +388,8 @@ pub fn registry() -> Vec<&'static dyn GamePattern> {
         &hang::Hang,
         &rise::Rise,
         &hooked::Hooked,
+        &jig::Jig,
+        &drawn::Drawn,
         // triggers
         &start::Start,
         &every_frame::EveryFrame,
@@ -510,6 +514,19 @@ pub fn hooked_at_map(g: &mut Gen) -> String {
 /// Things that got away, and until when they won't bite.
 pub fn shy_map(g: &mut Gen) -> String {
     g.field("shy", "BTreeMap<String, f32>", "BTreeMap::new()")
+}
+
+/// When each thing was last jigged (game clock): jigged thing -> time.
+pub fn jigged_map(g: &mut Gen) -> String {
+    g.field("jigged", "BTreeMap<String, f32>", "BTreeMap::new()")
+}
+
+/// An expression: is the thing named by `n` (a `&str` or `&String` expression) jigged now, a
+/// twitch less than `[game.tuning] jig_secs` ago?
+pub fn is_jigged(g: &mut Gen, n: &str) -> String {
+    let map = jigged_map(g);
+    let clock = g.clock();
+    format!("{map}.get({n}).is_some_and(|t| {clock} - *t < {})", f(g.t.jig_secs))
 }
 
 /// Lines that bind `top` to the position of the first `anchor` and run `body`

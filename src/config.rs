@@ -227,6 +227,15 @@ pub struct GameTuning {
     /// "lunging at": the dash lasts `lunge_secs`, the next can come `lunge_rest` seconds after it.
     pub lunge_secs: f32,
     pub lunge_rest: f32,
+    /// "jigs ... lifting it N units": the twitch rises over `jig_lift_secs`; the hook counts as
+    /// jigged for `jig_secs` after a twitch. "it flutters back down": it sways `flutter_sway`
+    /// units to each side at `flutter_rate` cycles per second, fading out over `jig_secs`.
+    pub jig_lift_secs: f32,
+    pub jig_secs: f32,
+    pub flutter_sway: f32,
+    pub flutter_rate: f32,
+    /// "drawn to a jigged hook": a fish slows down within this distance of it (units).
+    pub draw_ease: f32,
 }
 
 impl Config {
@@ -350,6 +359,11 @@ impl Config {
             ("nose_speed", t.nose_speed),
             ("nose_ease", t.nose_ease),
             ("lunge_secs", t.lunge_secs),
+            ("jig_lift_secs", t.jig_lift_secs),
+            ("jig_secs", t.jig_secs),
+            ("flutter_sway", t.flutter_sway),
+            ("flutter_rate", t.flutter_rate),
+            ("draw_ease", t.draw_ease),
         ];
         for (k, v) in positive {
             if !(v > 0.0) {
@@ -387,6 +401,9 @@ impl Config {
             if !(0.0..1.0).contains(&v) {
                 bail!("rules.toml: game.tuning.{k} must be in 0..1 (got {v})");
             }
+        }
+        if t.jig_lift_secs >= t.jig_secs {
+            bail!("rules.toml: game.tuning.jig_lift_secs must be shorter than jig_secs");
         }
         if t.dart_secs >= t.dart_cycle {
             bail!("rules.toml: game.tuning.dart_secs must be shorter than dart_cycle");

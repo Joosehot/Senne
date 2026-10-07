@@ -278,6 +278,11 @@ nose_speed = 0.5            # "nosing toward": at this fraction of the speed ...
 nose_ease = 1.5             # ... slowing within reach at this rate (1/s)
 lunge_secs = 0.7            # "lunging at": the dash lasts this long (s) ...
 lunge_rest = 2.5            # ... and the next can come this long after it (s)
+jig_lift_secs = 0.12        # "jigs ... lifting it N units": the twitch rises over this long (s) ...
+jig_secs = 2.5              # ... and the hook counts as jigged this long after a twitch (s)
+flutter_sway = 0.12         # "it flutters back down": sways this far to each side (u) ...
+flutter_rate = 2.2          # ... this many times a second, fading over the jigged time
+draw_ease = 1.0             # "drawn to a jigged hook": a fish slows down within this of it (u)
 
 # ---- Game judges ---------------------------------------------------------------
 
@@ -318,6 +323,16 @@ variants.per_loop = { safety = 0.8, brevity = 0.8, perf = 0.6 }
 weight = 1.0
 variants.bounds = { safety = 0.9, brevity = 0.5, perf = 0.7 }        # stored start, exact edges
 variants.sine = { safety = 0.6, brevity = 0.9, perf = 0.8 }          # no state, may drift
+
+[game.rules.jig]
+weight = 1.0
+variants.twitch = { safety = 0.8, brevity = 0.6, perf = 0.8 }       # the lift is a quick rise over a few frames
+variants.snap = { safety = 0.6, brevity = 0.9, perf = 0.9 }         # the hook jumps up on the press
+
+[game.rules.drawn]
+weight = 1.0
+variants.steer = { safety = 0.9, brevity = 0.6, perf = 0.8 }        # the velocity eases toward the lure (a turn)
+variants.direct = { safety = 0.6, brevity = 0.9, perf = 0.9 }       # the velocity points straight at it
 
 [game.rules.swim]
 weight = 1.0

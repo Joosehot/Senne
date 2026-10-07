@@ -42,6 +42,7 @@ pub const THINGS: &[(&str, &str)] = &[
     ("pike", "pikes"),
     ("hook", "hooks"),
     ("hole", "holes"),
+    ("rod", "rods"),
 ];
 
 /// Sound effects Droid can play.
@@ -95,6 +96,8 @@ pub const GRAMMAR: &[&str] = &[
     "away",
     // how fish swim: schools, gaits, depth, curiosity and lunges
     "school", "shoal", "darting", "drifting", "lurking", "keeping", "depth", "nosing", "lunging",
+    // jigging: the line from the rod tip, the twitch, the flutter, fish drawn to the lure
+    "tip", "through", "eye", "jigs", "jigged", "lifting", "flutters", "drawn",
 ];
 
 /// Every word the game language knows, sorted and unique.

@@ -146,6 +146,9 @@ impl<'a> Ctx<'a> {
     pub fn vel(&self, n: &str) -> Vec3 {
         Vec3::ZERO
     }
+    pub fn scale(&self, n: &str) -> Vec3 {
+        Vec3::ONE
+    }
     pub fn grounded(&self, n: &str) -> bool {
         false
     }
