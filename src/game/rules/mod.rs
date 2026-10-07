@@ -15,24 +15,32 @@ use crate::config::JudgeConfig;
 use std::collections::BTreeSet;
 
 pub mod animate;
+pub mod at_bottom;
 pub mod back_to_start;
+pub mod bite;
 pub mod bounce;
 pub mod chase;
+pub mod come_back;
 pub mod destroy;
 pub mod enemy_shoot;
 pub mod every;
 pub mod every_frame;
 pub mod falls_below;
 pub mod fly;
+pub mod get_away;
+pub mod hang;
 pub mod hit;
+pub mod hooked;
 pub mod hurt;
 pub mod judges;
 pub mod jump;
 pub mod key_press;
+pub mod landed;
 pub mod lands_on;
 pub mod lives;
 pub mod lose;
 pub mod march;
+pub mod meter;
 pub mod move_player;
 pub mod music;
 pub mod next_wave;
@@ -42,6 +50,7 @@ pub mod play_anim;
 pub mod player_shoot;
 pub mod random_shot;
 pub mod reaches;
+pub mod rise;
 pub mod restart;
 pub mod score;
 pub mod show;
@@ -73,6 +82,9 @@ pub enum Section {
     Land,
     /// `on_collision`.
     Collide,
+    /// `update`, after every other behaviour this frame (clamps and drawing that must see
+    /// where things ended up).
+    Late,
     /// Returned to the caller (actions inside a trigger).
     Inline,
 }
@@ -142,7 +154,7 @@ pub fn site(t: &Trigger) -> At {
             in_loop: false,
             last: false,
         },
-        Trigger::Hit { a, b } => {
+        Trigger::Hit { a, b, .. } => {
             let mut named = vec![(a.clone(), "a".to_string())];
             let it = match b {
                 super::parser::Party::Thing(tb) => {
@@ -153,6 +165,13 @@ pub fn site(t: &Trigger) -> At {
             };
             At { place: Place::Collision, it: Some(it.into()), named, in_loop: false, last: false }
         }
+        Trigger::Landed { kind, .. } | Trigger::AtBottom { kind, .. } => At {
+            place: Place::Update,
+            it: Some("&n".into()),
+            named: vec![(kind.clone(), "&n".into())],
+            in_loop: true,
+            last: false,
+        },
         Trigger::ThingBelow(thing, _) => At {
             place: Place::Update,
             it: Some("&n".into()),
@@ -177,6 +196,13 @@ pub struct Facts {
     pub respawned: BTreeSet<String>,
     /// Any "loses a life".
     pub hurts: bool,
+    /// Something gets hooked ("bites", "each hooked ...", "a hooked X reaches"): hooked
+    /// things stop their own movement.
+    pub hooks: bool,
+    /// The lowest point a hook sinks to ("sinking ... down to D").
+    pub hook_depth: Option<f32>,
+    /// Something "gets away": it is shy for a while and doesn't bite.
+    pub shy: bool,
 }
 
 impl Facts {
@@ -188,8 +214,15 @@ impl Facts {
                     f.move_mode.get_or_insert(*mode);
                 }
                 Body::Standing(Standing::Shoot { aim: super::parser::Aim::Forward, .. }) => f.needs_aim = true,
+                Body::Standing(Standing::Hooked { .. }) => f.hooks = true,
+                Body::Standing(Standing::Hang { sink: Some((_, depth)), .. }) => {
+                    f.hook_depth.get_or_insert(*depth);
+                }
                 Body::Standing(_) => {}
                 Body::Event { trigger, actions } => {
+                    if matches!(trigger, Trigger::Landed { .. } | Trigger::AtBottom { .. }) {
+                        f.hooks = true;
+                    }
                     for a in actions {
                         match &a.act {
                             Action::Restart => {
@@ -201,6 +234,8 @@ impl Facts {
                                 f.respawned.insert(k.clone());
                             }
                             Action::LoseLife { .. } => f.hurts = true,
+                            Action::Bite(_) => f.hooks = true,
+                            Action::GetAway(_) => f.shy = true,
                             _ => {}
                         }
                     }
@@ -339,6 +374,9 @@ pub fn registry() -> Vec<&'static dyn GamePattern> {
         &march::March,
         &enemy_shoot::EnemyShoot,
         &animate::Animate,
+        &hang::Hang,
+        &rise::Rise,
+        &hooked::Hooked,
         // triggers
         &start::Start,
         &every_frame::EveryFrame,
@@ -349,6 +387,8 @@ pub fn registry() -> Vec<&'static dyn GamePattern> {
         &none_left::NoneLeft,
         &reaches::Reaches,
         &falls_below::FallsBelow,
+        &landed::Landed,
+        &at_bottom::AtBottom,
         &key_press::KeyPress,
         // actions
         &destroy::Destroy,
@@ -367,6 +407,10 @@ pub fn registry() -> Vec<&'static dyn GamePattern> {
         &restart::Restart,
         &next_wave::NextWave,
         &random_shot::RandomShot,
+        &bite::Bite,
+        &get_away::GetAway,
+        &come_back::ComeBack,
+        &meter::Meter,
     ]
 }
 
@@ -444,6 +488,27 @@ pub fn lines(src: &str) -> Vec<String> {
     src.lines().map(|l| l.to_string()).collect()
 }
 
+/// The game's map of catches: hooked thing -> the hook it bit.
+pub fn hooked_map(g: &mut Gen) -> String {
+    g.field("hooked", "BTreeMap<String, String>", "BTreeMap::new()")
+}
+
+/// When each catch bit (game clock): hooked thing -> time.
+pub fn hooked_at_map(g: &mut Gen) -> String {
+    g.field("hooked_at", "BTreeMap<String, f32>", "BTreeMap::new()")
+}
+
+/// Things that got away, and until when they won't bite.
+pub fn shy_map(g: &mut Gen) -> String {
+    g.field("shy", "BTreeMap<String, f32>", "BTreeMap::new()")
+}
+
+/// Lines that bind `top` to the position of the first `anchor` and run `body`
+/// only when there is one.
+pub fn with_anchor(anchor: &str, body: Vec<String>) -> Vec<String> {
+    block(format!("if let Some(top) = cx.find_tag({}).first().map(|h| cx.pos(h))", s(anchor)), body)
+}
+
 /// A vector literal in the plane a mode moves in (x, y as given).
 pub fn plane_vec(mode: Mode, x: &str, y: &str) -> String {
     match mode {
@@ -462,16 +527,16 @@ pub mod test_util {
         parse(s, false).unwrap_or_else(|d| panic!("{d:?}")).sentences.remove(0)
     }
 
-    /// Does `p` match the sentence's standing behaviour, trigger or any action?
-    pub fn matches(p: &dyn GamePattern, s: &str) -> bool {
-        let s = sentence(s);
-        match &s.body {
+    /// Does `p` match a sentence's standing behaviour, trigger or any action?
+    /// (`src` may hold several sentences, for sentences that need another one.)
+    pub fn matches(p: &dyn GamePattern, src: &str) -> bool {
+        parse(src, false).unwrap_or_else(|d| panic!("{d:?}")).sentences.iter().any(|s| match &s.body {
             Body::Standing(st) => p.matches(&Node::Standing(st)),
             Body::Event { trigger, actions } => {
                 p.matches(&Node::Trigger(trigger))
                     || actions.iter().any(|a| p.matches(&Node::Action { act: &a.act, trigger }))
             }
-        }
+        })
     }
 
     /// Compile a whole program with the built-in rules (for pattern tests that look at code).

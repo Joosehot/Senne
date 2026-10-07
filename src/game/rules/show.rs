@@ -60,7 +60,19 @@ impl GamePattern for Show {
         }
     }
     fn emit(&self, variant: &str, n: &Node, g: &mut Gen, _at: &At, _body: Vec<String>) -> Emitted {
-        let Node::Action { act: Action::Show { parts, place, color, .. }, .. } = n else { unreachable!() };
+        let Node::Action { act: Action::Show { parts, place, color, secs, .. }, .. } = n else { unreachable!() };
+        if let Some(secs) = secs {
+            let (id, until) = g.flash(*place);
+            let (x, y) = g.place_xy(*place);
+            let (text, _) = text_expr(g, parts);
+            let mut l = vec![format!("cx.text_at(\"{id}\", {text}, {}, {}, {});", f(x), f(y), f(g.t.flash_size))];
+            if let Some([r, gr, b]) = color {
+                l.push(format!("cx.text_color(\"{id}\", vec3({}, {}, {}));", f(*r), f(*gr), f(*b)));
+            }
+            let clock = g.clock();
+            l.push(format!("{until} = {clock} + {};", f(*secs)));
+            return Emitted::inline(l);
+        }
         let id = g.text_id();
         let (x, y) = g.slot(*place);
         let size = f(g.t.hud_size);
@@ -100,6 +112,13 @@ mod tests {
     #[test]
     fn does_not_apply() {
         assert!(!matches(&Show, "At the start, play the coin sound."));
+    }
+
+    #[test]
+    fn a_message_for_a_while_goes_again() {
+        let c = code("When the player touches a coin, show \"NICE\" in the middle for 1.5 seconds.");
+        assert!(c.contains("self.flash_middle = self.clock + 1.5;"), "{c}");
+        assert!(c.contains("cx.remove_text(\"flash_middle\");"), "{c}");
     }
 
     #[test]

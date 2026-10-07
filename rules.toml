@@ -229,6 +229,27 @@ top = [0.42, 0.03]
 middle = [0.36, 0.45]
 bottom = [0.40, 0.92]
 banner = [0.30, 0.40]
+shout_threshold = 0.25      # "while the player shouts": voice (0..1) at or above this is a shout
+line_width = 0.06           # "hangs on a line": thickness (u)
+line_color = [0.92, 0.92, 0.88]
+line_depth = -0.1           # the line is drawn behind the hook (z)
+hooked_drop = 0.7           # a hooked thing hangs this far below its hook (u)
+land_margin = 0.3           # "a hooked X reaches the Y": within this height of it (u)
+side_x = 18.0               # "comes in from the side": appears this far left or right (u), past the screen edge
+meter_width = 20            # "the shout meter": bar cells
+meter_label = "SHOUT"
+meter_on = [0.45, 1.0, 0.45]  # meter colour while it counts as a shout
+meter_off = [0.7, 0.75, 0.8]
+line_spring = 6.0           # a hook pulled sideways springs back under the hole (1/s)
+burst_secs = 0.9            # "in bursts": pull this long ...
+rest_secs = 0.7             # ... then rest this long (s): a shout in the rest gains ground
+thrash_width = 0.45         # "fighting": darts this far to each side (u)
+thrash_rate = 2.5           # ... this many times a second
+rest_thrash = 0.3           # ... at this fraction while resting
+hook_jerk = 0.6             # ... and jerks the hook sideways by this fraction of the dart
+bottom_margin = 0.2         # "stays at the bottom": within this height of the hook's lowest point (u)
+shy_secs = 3.0              # "it gets away": won't bite again for this long (s)
+flash_size = 36.0           # "show ... for N seconds": message size (px)
 
 # ---- Game judges ---------------------------------------------------------------
 
@@ -296,6 +317,22 @@ weight = 1.0
 variants.clock = { safety = 0.8, brevity = 0.7, perf = 0.6 }
 variants.engine = { safety = 0.8, brevity = 0.8, perf = 0.9 }
 
+[game.rules.hang]
+weight = 1.0
+variants.named = { safety = 0.7, brevity = 0.9, perf = 0.8 }        # the line is "<hook>_line", found by name
+variants.tracked = { safety = 0.9, brevity = 0.6, perf = 0.8 }      # remember the name the engine gave the line
+
+[game.rules.rise]
+weight = 1.0
+variants.linear = { safety = 0.8, brevity = 0.9, perf = 0.8 }       # speed = top speed x loudness, above the threshold
+variants.ramp = { safety = 0.8, brevity = 0.6, perf = 0.8 }         # speed grows from 0 at the threshold to top at full voice
+variants.constant = { safety = 0.8, brevity = 0.8, perf = 0.8 }     # without "as loud as the shout"
+
+[game.rules.hooked]
+weight = 1.0
+variants.copy = { safety = 0.8, brevity = 0.9, perf = 0.6 }         # loop over a copy of every catch
+variants.filtered = { safety = 0.8, brevity = 0.6, perf = 0.8 }     # copy only this kind's catches
+
 # ---- Game patterns: triggers ------------------------------------------------------
 
 [game.rules.start]
@@ -333,6 +370,14 @@ variants.edge = { safety = 0.8, brevity = 0.8, perf = 0.8 }
 [game.rules.falls_below]
 weight = 1.0
 variants.check = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.landed]
+weight = 1.0
+variants.scan = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.at_bottom]
+weight = 1.0
+variants.timer = { safety = 0.8, brevity = 0.8, perf = 0.8 }
 
 [game.rules.key_press]
 weight = 1.0
@@ -408,3 +453,20 @@ variants.respawn = { safety = 0.8, brevity = 0.8, perf = 0.8 }
 [game.rules.random_shot]
 weight = 1.0
 variants.pick = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.bite]
+weight = 1.0
+variants.map = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.get_away]
+weight = 1.0
+variants.unhook = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.come_back]
+weight = 1.0
+variants.queue = { safety = 0.8, brevity = 0.8, perf = 0.8 }
+
+[game.rules.meter]
+weight = 1.0
+variants.every_frame = { safety = 0.8, brevity = 0.9, perf = 0.5 }  # rewrite the bar each frame
+variants.on_change = { safety = 0.8, brevity = 0.5, perf = 0.9 }    # only when its length changes

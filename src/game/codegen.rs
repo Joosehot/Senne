@@ -24,6 +24,8 @@ pub enum Feature {
     Blink,
     /// `self.start = cx.pos("player")` in init.
     Start,
+    /// Scene things queued to come back ("a new perch comes back after 3 seconds").
+    Comebacks,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -46,11 +48,13 @@ pub struct Gen<'a> {
     pub update: Vec<String>,
     pub land: Vec<String>,
     pub collide: Vec<String>,
+    pub late: Vec<String>,
     helpers: BTreeMap<String, Vec<String>>,
     features: BTreeSet<Feature>,
     cleanup: BTreeSet<String>,
     slots: BTreeMap<TextPlace, u32>,
     texts: u32,
+    flashes: BTreeSet<TextPlace>,
 }
 
 impl<'a> Gen<'a> {
@@ -67,11 +71,13 @@ impl<'a> Gen<'a> {
             update: Vec::new(),
             land: Vec::new(),
             collide: Vec::new(),
+            late: Vec::new(),
             helpers: BTreeMap::new(),
             features: BTreeSet::new(),
             cleanup: BTreeSet::new(),
             slots: BTreeMap::new(),
             texts: 0,
+            flashes: BTreeSet::new(),
         }
     }
 
@@ -104,6 +110,10 @@ impl<'a> Gen<'a> {
             }
             Feature::Blink | Feature::Start => {}
             Feature::Hoist => {}
+            Feature::Comebacks => {
+                self.field("clock", "f32", "0.0");
+                self.field("comebacks", "Vec<(f32, String, bool)>", "Vec::new()");
+            }
         }
         if feat == Feature::Start {
             self.field("start", "Vec3", "Vec3::ZERO");
@@ -151,6 +161,28 @@ impl<'a> Gen<'a> {
         (x, y)
     }
 
+    /// A message shown for a while at `place` ("show ... for N seconds"): its text id and the
+    /// field holding when it goes. Messages at one place share them (a new one replaces the old).
+    pub fn flash(&mut self, place: TextPlace) -> (String, String) {
+        let key = flash_key(place);
+        self.clock();
+        let until = self.field(&format!("flash_{key}"), "f32", "0.0");
+        self.flashes.insert(place);
+        (format!("flash_{key}"), until)
+    }
+
+    /// Screen position of `place` (its first line).
+    pub fn place_xy(&self, place: TextPlace) -> (f32, f32) {
+        let [x, y] = match place {
+            TextPlace::TopLeft => self.t.top_left,
+            TextPlace::TopRight => self.t.top_right,
+            TextPlace::Top => self.t.top,
+            TextPlace::Middle => self.t.middle,
+            TextPlace::Bottom => self.t.bottom,
+        };
+        (x, y)
+    }
+
     /// The end-of-game banner: "YOU WIN!" / "GAME OVER" or the sentence's own,
     /// plus " - PRESS R" when a key restarts the game.
     pub fn banner(&self, won: bool, custom: Option<&str>) -> String {
@@ -178,7 +210,18 @@ impl<'a> Gen<'a> {
             Section::Update | Section::Inline => self.update.extend(lines),
             Section::Land => self.land.extend(lines),
             Section::Collide => self.collide.extend(lines),
+            Section::Late => self.late.extend(lines),
         }
+    }
+}
+
+fn flash_key(p: TextPlace) -> &'static str {
+    match p {
+        TextPlace::TopLeft => "top_left",
+        TextPlace::TopRight => "top_right",
+        TextPlace::Top => "top",
+        TextPlace::Middle => "middle",
+        TextPlace::Bottom => "bottom",
     }
 }
 
@@ -329,7 +372,42 @@ fn render(g: &Gen, name: &str) -> String {
             ],
         ));
     }
+    for place in &g.flashes {
+        let key = flash_key(*place);
+        playing.push(format!("// the message at the {} goes when its time is up", key.replace('_', " ")));
+        playing.extend(block(
+            format!("if self.flash_{key} > 0.0 && self.clock >= self.flash_{key}"),
+            vec![format!("cx.remove_text(\"flash_{key}\");"), format!("self.flash_{key} = 0.0;")],
+        ));
+    }
+    if g.features.contains(&Feature::Comebacks) {
+        playing.push("// scene things that come back once their time is up".into());
+        playing.push(
+            "let due: Vec<(String, bool)> = self.comebacks.iter().filter(|c| c.0 <= self.clock).map(|c| (c.1.clone(), c.2)).collect();"
+                .into(),
+        );
+        playing.push("self.comebacks.retain(|c| c.0 > self.clock);".into());
+        playing.extend(block(
+            "for (name, side) in due",
+            block(
+                "if let Some(n) = cx.respawn(&name)",
+                block(
+                    "if side",
+                    vec![
+                        format!(
+                            "let x = if cx.random(0.0, 1.0) < 0.5 {{ {} }} else {{ {} }};",
+                            f(-t.side_x),
+                            f(t.side_x)
+                        ),
+                        "let y = cx.pos(&n).y;".into(),
+                        "cx.set_pos(&n, vec2(x, y));".into(),
+                    ],
+                ),
+            ),
+        ));
+    }
     playing.extend(g.update.iter().cloned());
+    playing.extend(g.late.iter().cloned());
     for tag in &g.cleanup {
         playing.push(format!("// projectiles far from the player are gone ({tag})"));
         playing.extend(block(

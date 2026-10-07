@@ -148,6 +148,40 @@ pub struct GameTuning {
     pub middle: [f32; 2],
     pub bottom: [f32; 2],
     pub banner: [f32; 2],
+    /// "while the player shouts": the microphone loudness (0..1) that counts as a shout.
+    pub shout_threshold: f32,
+    /// "hangs on a line": the line's thickness (units), colour and depth (z, behind the hook).
+    pub line_width: f32,
+    pub line_color: [f32; 3],
+    pub line_depth: f32,
+    /// A hooked thing hangs this far below its hook (units).
+    pub hooked_drop: f32,
+    /// "a hooked X reaches the Y": the hook counts as there within this height (units).
+    pub land_margin: f32,
+    /// "comes in from the side": how far from the middle it appears (units, either side).
+    pub side_x: f32,
+    /// "hangs on a line": a hook pulled sideways springs back under the hole at this rate (1/s).
+    pub line_spring: f32,
+    /// "in bursts": a hooked thing pulls this long, then rests this long (seconds).
+    pub burst_secs: f32,
+    pub rest_secs: f32,
+    /// "fighting": it darts this far to each side (units) this many times a second, at
+    /// `rest_thrash` of that while resting, and jerks its hook sideways by `hook_jerk` of it.
+    pub thrash_width: f32,
+    pub thrash_rate: f32,
+    pub rest_thrash: f32,
+    pub hook_jerk: f32,
+    /// "stays at the bottom": the hook counts as at the bottom within this height (units).
+    pub bottom_margin: f32,
+    /// "it gets away": it won't bite again for this long (seconds).
+    pub shy_secs: f32,
+    /// "the shout meter": bar cells, label, colour at or above the shout threshold and below it.
+    pub meter_width: i64,
+    pub meter_label: String,
+    pub meter_on: [f32; 3],
+    pub meter_off: [f32; 3],
+    /// "show ... for N seconds": text size of such messages (pixels).
+    pub flash_size: f32,
 }
 
 impl Config {

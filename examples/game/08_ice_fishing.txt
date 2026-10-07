@@ -1,0 +1,17 @@
+At the start, show "SCORE {score} / 50" at the top left in "#16324f", show "TIME {countdown 90}" at the top right in "#16324f" and show the shout meter at the bottom.
+The hook hangs on a line from the hole, sinking at 1.5 units per second down to -9.
+The hook rises while the player shouts or holds space, at up to 8 units per second as loud as the shout.
+Each perch swims within 16 units at 2 units per second.
+Each roach swims within 16 units at 3 units per second.
+Each pike swims within 16 units at 1.5 units per second.
+Each hooked perch follows its hook, fighting and pulling it down at 2 units per second in bursts.
+Each hooked roach follows its hook, fighting and pulling it down at 1.5 units per second in bursts.
+Each hooked pike follows its hook, fighting and pulling it down at 5 units per second in bursts.
+When a hook touches a fish and no fish is hooked, the fish bites, squash it, play the hit sound and show "FISH ON! SHOUT!" in the middle for 1.5 seconds.
+When a hooked perch reaches the hole, add 10 points, destroy it, play the splash sound, show "PERCH +10" in the middle for 1.5 seconds and a new perch comes in from the side after 3 seconds.
+When a hooked roach reaches the hole, add 5 points, destroy it, play the splash sound, show "ROACH +5" in the middle for 1.5 seconds and a new roach comes in from the side after 2 seconds.
+When a hooked pike reaches the hole, add 30 points, destroy it, play the splash sound, show "PIKE +30" in the middle for 1.5 seconds and a new pike comes in from the side after 6 seconds.
+When a hooked fish stays at the bottom for 3 seconds, it gets away, play the splash sound and show "IT GOT AWAY!" in the middle for 1.5 seconds.
+When the score reaches 50, the player wins "GREAT CATCH".
+When the time reaches 90 seconds, the player loses "TIME UP".
+When the player presses r, restart the game.

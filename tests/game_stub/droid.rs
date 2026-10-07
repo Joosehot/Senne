@@ -131,6 +131,9 @@ impl<'a> Ctx<'a> {
     pub fn axis_y(&self) -> f32 {
         0.0
     }
+    pub fn voice(&self) -> f32 {
+        0.0
+    }
     pub fn random(&self, lo: f32, hi: f32) -> f32 {
         lo
     }
@@ -162,6 +165,7 @@ impl<'a> Ctx<'a> {
     pub fn set_vel_y(&mut self, n: &str, y: f32) {}
     pub fn set_vel_z(&mut self, n: &str, z: f32) {}
     pub fn set_scale(&mut self, n: &str, s: Vec3) {}
+    pub fn set_rotation(&mut self, n: &str, degrees: Vec3) {}
     pub fn set_color(&mut self, n: &str, c: Vec3) {}
     pub fn set_flip_x(&mut self, n: &str, f: bool) {}
     pub fn set_solid(&mut self, n: &str, s: bool) {}
@@ -180,6 +184,9 @@ impl<'a> Ctx<'a> {
     pub fn destroy(&mut self, n: &str) {}
     pub fn respawn_tag(&mut self, tag: &str) -> usize {
         0
+    }
+    pub fn respawn(&mut self, name: &str) -> Option<String> {
+        None
     }
     pub fn destroy_tag(&mut self, tag: &str) {}
     pub fn text(&mut self, id: &str, s: &str) {}

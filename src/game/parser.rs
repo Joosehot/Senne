@@ -43,12 +43,27 @@ pub enum Standing {
     Jump { key: String, speed: f32, air: Option<f32>, held: bool, sound: Option<String> },
     Shoot { aim: Aim, ground: bool, key: String, speed: f32, every: Option<f32>, sprite: String, sound: Option<String> },
     Chase { kind: String, speed: f32, mode: Mode, within: Option<f32>, speedup: Option<f32> },
-    Patrol { kind: String, range: f32, speed: f32 },
+    /// "patrols / swims N units to each side" (from home) or "within N units" (`edges`: turn at x = +-N).
+    Patrol { kind: String, range: f32, speed: f32, edges: bool },
     Fly { kind: String, height: f32, freq: f32 },
     Wander { kind: String, speed: f32, turn: f32, ground: bool },
     March { kind: String, speed: f32, within: f32, step: f32, max_mult: Option<f32>, wave_pct: Option<f32> },
     EnemyShoot { kind: String, aim: Aim, speed: f32, every: f32, within: Option<f32>, sprite: String, sound: Option<String> },
     Animate { who: Who, frames: Vec<String>, fps: f32, walking: bool },
+    /// "The hook hangs on a line from the hole[, sinking at N units per second down to D]."
+    Hang { kind: String, anchor: String, sink: Option<(f32, f32)> },
+    /// "The hook rises while the player shouts [or holds space], at [up to] N units per second [as loud as the shout]."
+    Rise { kind: String, speed: f32, voice: bool, key: Option<String>, loud: bool },
+    /// "Each hooked perch follows its hook[, fighting][, pulling it down at N units per second[ in bursts]]."
+    /// `fight`: it darts from side to side and jerks the hook; `bursts`: it pulls in surges with rests.
+    Hooked { kind: String, pull: Option<f32>, fight: bool, bursts: bool },
+}
+
+/// An extra condition on a collision trigger: "and no coins are left", "and no fish is hooked".
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cond {
+    NoneLeft(String),
+    NoneHooked(String),
 }
 
 /// One side of a collision.
@@ -65,8 +80,12 @@ pub enum Trigger {
     Every(f32),
     /// "the player touches a coin [and no keys are left]"
     Touch { thing: String, none_left: Option<String> },
-    /// "a shot hits an alien", "a bomb hits the player"
-    Hit { a: String, b: Party },
+    /// "a shot hits an alien", "a bomb hits the player", "a hook touches a fish and no fish is hooked"
+    Hit { a: String, b: Party, cond: Option<Cond> },
+    /// "a hooked perch reaches the hole": the hook it bit is at the hole's height.
+    Landed { kind: String, place: String },
+    /// "a hooked perch stays at the bottom for 3 seconds": its hook has been at its lowest that long.
+    AtBottom { kind: String, secs: f32 },
     LandsOn(String),
     NoneLeft(String),
     Score(i64),
@@ -80,8 +99,12 @@ impl Trigger {
     /// The thing "it" refers to, if any.
     pub fn it(&self) -> Option<&str> {
         match self {
-            Trigger::Touch { thing, .. } | Trigger::LandsOn(thing) | Trigger::ThingBelow(thing, _) => Some(thing),
-            Trigger::Hit { a, b } => match b {
+            Trigger::Touch { thing, .. }
+            | Trigger::LandsOn(thing)
+            | Trigger::ThingBelow(thing, _)
+            | Trigger::Landed { kind: thing, .. }
+            | Trigger::AtBottom { kind: thing, .. } => Some(thing),
+            Trigger::Hit { a, b, .. } => match b {
                 Party::Thing(t) => Some(t),
                 Party::Player => Some(a),
             },
@@ -91,7 +114,7 @@ impl Trigger {
     /// Things this trigger names (for "the shot" / "the alien").
     pub fn named(&self) -> Vec<&str> {
         match self {
-            Trigger::Hit { a, b } => {
+            Trigger::Hit { a, b, .. } => {
                 let mut v = vec![a.as_str()];
                 if let Party::Thing(t) = b {
                     v.push(t);
@@ -149,7 +172,8 @@ pub enum Action {
     Sound(String),
     Music { notes: String, bpm: Option<f32>, wave: Option<String> },
     /// `live`: shown at the start with placeholders, so it is kept up to date.
-    Show { parts: Vec<Part>, place: Place, color: Option<[f32; 3]>, live: bool },
+    /// `secs`: "for N seconds", a message that goes away again.
+    Show { parts: Vec<Part>, place: Place, color: Option<[f32; 3]>, live: bool, secs: Option<f32> },
     Bounce(f32),
     BackToStart,
     Squash(Target),
@@ -157,6 +181,14 @@ pub enum Action {
     Restart,
     NextWave(String),
     RandomShot { kind: String, aim: Aim, speed: f32, sprite: String, sound: Option<String> },
+    /// "it bites" / "the fish bites": it is hooked on the trigger's other thing.
+    Bite(Target),
+    /// "it gets away": a hooked thing is let go and won't bite again for a while.
+    GetAway(Target),
+    /// "a new perch comes back / comes in from the side after N seconds": its scene entity again.
+    ComeBack { kind: String, after: f32, side: bool },
+    /// "show the shout meter at the bottom": the microphone's loudness as a bar.
+    Meter { place: Place },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -455,12 +487,147 @@ fn standing(c: &mut Cur) -> R<Option<Standing>> {
     }
     if c.is("each") {
         c.eat("each");
+        if c.eat("hooked") {
+            let Some((kind, _)) = c.thing() else {
+                return Err(c.err("\"each hooked\" needs a thing (each hooked perch ...)"));
+            };
+            return hooked(c, kind).map(Some);
+        }
         let Some((kind, _)) = c.thing() else {
             return Err(c.err("\"each\" needs a thing (each slime, each alien ...)"));
         };
         return each(c, kind).map(Some);
     }
+    // "The hook hangs ...": a thing named with "the" behaves like "each".
+    if let Some(kind) = c.attempt(|c| {
+        if !c.eat("the") {
+            return None;
+        }
+        c.thing().map(|(k, _)| k)
+    }) {
+        return each(c, kind).map(Some);
+    }
     Ok(None)
+}
+
+fn hooked(c: &mut Cur, kind: String) -> R<Standing> {
+    if !(c.eat("follows") && (c.eat_all("its hook") || c.eat_all("the hook"))) {
+        return Err(c.err(format!("what does a hooked {kind} do?")).hint("\"follows its hook, pulling it down at N units per second\""));
+    }
+    let (mut pull, mut fight, mut bursts) = (None, false, false);
+    while !c.done() {
+        if c.glue() {
+            continue;
+        }
+        if let Some(v) = c.attempt(|c| {
+            if !c.eat_all("pulling it down") {
+                return None;
+            }
+            opt_speed(c)
+        }) {
+            once(&mut pull, positive(v, "the pull", c)?, "\"pulling it down\"", c)?;
+        } else if c.eat("fighting") {
+            flag(&mut fight, "fighting", c)?;
+        } else if c.eat_all("in bursts") {
+            flag(&mut bursts, "in bursts", c)?;
+        } else {
+            return Err(c.leftover());
+        }
+    }
+    if bursts && pull.is_none() {
+        return Err(c.err("\"in bursts\" needs a pull").hint("\"pulling it down at 3 units per second in bursts\""));
+    }
+    Ok(Standing::Hooked { kind, pull, fight, bursts })
+}
+
+fn hang(c: &mut Cur, kind: String) -> R<Standing> {
+    let anchor = c.attempt(|c| {
+        if !c.eat_all("on a line from") {
+            return None;
+        }
+        c.article();
+        c.thing().map(|(t, _)| t)
+    });
+    let Some(anchor) = anchor else {
+        return Err(c.err("hangs from what?").hint("\"hangs on a line from the hole\""));
+    };
+    if anchor == kind {
+        return Err(c.err(format!("a {kind} can't hang from itself")));
+    }
+    let mut sink = None;
+    while !c.done() {
+        if c.glue() {
+            continue;
+        }
+        if let Some(v) = c.attempt(|c| {
+            if !c.eat("sinking") {
+                return None;
+            }
+            let speed = opt_speed(c)?;
+            if !c.eat_all("down to") {
+                return None;
+            }
+            Some((speed, c.num()?))
+        }) {
+            once(&mut sink, (positive(v.0, "the sinking speed", c)?, v.1), "\"sinking\"", c)?;
+        } else {
+            return Err(c.leftover());
+        }
+    }
+    Ok(Standing::Hang { kind, anchor, sink })
+}
+
+fn rise(c: &mut Cur, kind: String) -> R<Standing> {
+    let (mut voice, mut key, mut speed, mut loud, mut up_to, mut when) = (false, None, None, false, false, false);
+    while !c.done() {
+        if c.glue() {
+            continue;
+        }
+        if c.eat_all("while the player") {
+            flag(&mut when, "while the player ...", c)?;
+            loop {
+                if c.eat("shouts") {
+                    flag(&mut voice, "shouts", c)?;
+                } else if c.eat("holds") {
+                    let k = need(c.key(), "a key (\"holds space\")", c)?;
+                    once(&mut key, k, "the key", c)?;
+                } else {
+                    return Err(c.err("while the player does what?").hint("\"shouts\" or \"holds space\""));
+                }
+                if !c.eat("or") {
+                    break;
+                }
+            }
+        } else if let Some((v, up)) = c.attempt(|c| {
+            if !c.eat("at") {
+                return None;
+            }
+            let up = c.eat_all("up to");
+            let n = c.num()?;
+            if !(c.eat("units") || c.eat("unit")) {
+                return None;
+            }
+            c.eat_all("per second").then_some((n, up))
+        }) {
+            once(&mut speed, positive(v, "the speed", c)?, "a speed", c)?;
+            up_to = up;
+        } else if c.eat_all("as loud as the shout") {
+            flag(&mut loud, "as loud as the shout", c)?;
+        } else {
+            return Err(c.leftover());
+        }
+    }
+    if !when {
+        return Err(c.err("rises when?").hint("\"while the player shouts\" or \"while the player holds space\""));
+    }
+    if loud && !voice {
+        return Err(c.err("\"as loud as the shout\" needs \"while the player shouts\""));
+    }
+    if up_to && !loud {
+        return Err(c.err("\"up to\" needs \"as loud as the shout\"").hint("or say \"at N units per second\""));
+    }
+    let speed = need(speed, "a speed (\"at up to N units per second\")", c)?;
+    Ok(Standing::Rise { kind, speed, voice, key, loud })
 }
 
 fn move_player(c: &mut Cur) -> R<Standing> {
@@ -671,25 +838,45 @@ fn each(c: &mut Cur, kind: String) -> R<Standing> {
         let speed = positive(need(speed, "a speed (\"at N units per second\")", c)?, "the speed", c)?;
         return Ok(Standing::Chase { kind, speed, mode, within, speedup });
     }
-    if c.eat("patrols") {
-        let range = c.num();
-        if range.is_none() || !(c.eat("units") || c.eat("unit")) || !c.eat_all("to each side") {
-            return Err(c.err("patrols how far?").hint("\"patrols 3 units to each side\""));
-        }
-        let range = positive(range.expect("checked"), "the patrol range", c)?;
-        let mut speed = None;
+    if c.eat("patrols") || c.eat("swims") {
+        c.eat("sideways");
+        let side = c.attempt(|c| {
+            let n = c.num()?;
+            if !(c.eat("units") || c.eat("unit")) {
+                return None;
+            }
+            c.eat_all("to each side").then_some(n)
+        });
+        let (mut speed, mut within) = (None, None);
         while !c.done() {
             if c.glue() {
                 continue;
             }
             if let Some(v) = opt_speed(c) {
                 once(&mut speed, v, "a speed", c)?;
+            } else if let Some(v) = opt_within(c) {
+                once(&mut within, v, "\"within\"", c)?;
             } else {
                 return Err(c.leftover());
             }
         }
+        let (range, edges) = match (side, within) {
+            (Some(r), None) => (r, false),
+            (None, Some(w)) => (w, true),
+            (Some(_), Some(_)) => return Err(c.err("\"to each side\" and \"within\" are two ranges; give one")),
+            (None, None) => {
+                return Err(c.err("how far?").hint("\"patrols 3 units to each side\" or \"swims within 12 units\""))
+            }
+        };
+        let range = positive(range, "the patrol range", c)?;
         let speed = positive(need(speed, "a speed (\"at N units per second\")", c)?, "the speed", c)?;
-        return Ok(Standing::Patrol { kind, range, speed });
+        return Ok(Standing::Patrol { kind, range, speed, edges });
+    }
+    if c.eat("hangs") {
+        return hang(c, kind);
+    }
+    if c.eat("rises") {
+        return rise(c, kind);
     }
     if c.eat("flies") {
         let height = c.attempt(|c| {
@@ -833,7 +1020,7 @@ fn each(c: &mut Cur, kind: String) -> R<Standing> {
         });
     }
     Err(c.err(format!("don't know what each {kind} does: \"{}\"", c.rest()))
-        .hint("moves toward the player, patrols, flies in a wave, wanders, marches sideways or shoots"))
+        .hint("moves toward the player, patrols, swims, flies in a wave, wanders, marches sideways, shoots, hangs or rises"))
 }
 
 // ---- triggers --------------------------------------------------------------
@@ -919,9 +1106,28 @@ fn when(c: &mut Cur) -> R<Trigger> {
         return Ok(Trigger::Time(positive(n, "the time", c)?));
     }
     c.article();
+    let hooked = c.eat("hooked");
     let Some((a, _)) = c.thing() else {
         return Err(c.err(format!("don't understand \"when {}\"", c.rest())));
     };
+    if hooked {
+        if c.eat_all("stays at the bottom for") {
+            let n = need(c.num(), "a number of seconds", c)?;
+            if !(c.eat("seconds") || c.eat("second")) {
+                return Err(c.err("expected \"seconds\""));
+            }
+            return Ok(Trigger::AtBottom { kind: a, secs: positive(n, "the time", c)? });
+        }
+        if !c.eat("reaches") {
+            return Err(c.err(format!("what does the hooked {a} do?"))
+                .hint("\"When a hooked perch reaches the hole, ...\" or \"... stays at the bottom for 3 seconds, ...\""));
+        }
+        c.article();
+        let Some((place, _)) = c.thing() else {
+            return Err(c.err("reaches what?").hint("\"reaches the hole\""));
+        };
+        return Ok(Trigger::Landed { kind: a, place });
+    }
     if c.eat("hits") || c.eat("touches") {
         let b = if c.eat_all("the player") {
             Party::Player
@@ -932,7 +1138,20 @@ fn when(c: &mut Cur) -> R<Trigger> {
                 None => return Err(c.err(format!("{a} hits what?"))),
             }
         };
-        return Ok(Trigger::Hit { a, b });
+        let cond = c.attempt(|c| {
+            if !c.eat_all("and no") {
+                return None;
+            }
+            let (t, _) = c.thing()?;
+            if c.eat_all("are left") || c.eat_all("is left") {
+                Some(Cond::NoneLeft(t))
+            } else if c.eat_all("is hooked") || c.eat_all("are hooked") {
+                Some(Cond::NoneHooked(t))
+            } else {
+                None
+            }
+        });
+        return Ok(Trigger::Hit { a, b, cond });
     }
     if c.eat_all("falls below") {
         let n = need(c.num(), "a height", c)?;
@@ -952,7 +1171,9 @@ fn starts_action(t: &[Tok]) -> bool {
     matches!(
         head,
         "destroy" | "add" | "has" | "loses" | "wins" | "goes" | "play" | "show" | "bounce" | "squash" | "restart" | "start"
-    ) || (w(0) == "a" && w(1) == "random")
+    ) || (w(0) == "a" && (w(1) == "random" || w(1) == "new"))
+        || (w(0) == "it" && (w(1) == "bites" || w(1) == "gets"))
+        || (w(0) == "the" && w(2) == "bites")
 }
 
 /// Split the action list into pieces; verbless pieces join the one before.
@@ -1140,6 +1361,62 @@ fn action(c: &mut Cur, trig: &Trigger) -> R<Action> {
     if c.eat_all("goes back to the start") {
         return end(c, Action::BackToStart);
     }
+    if !player && (c.word_at(1) == Some("bites") || c.word_at(2) == Some("bites")) {
+        let t = target(c, trig, "bite")?;
+        if !c.eat("bites") {
+            return Err(c.leftover());
+        }
+        if !matches!(trig, Trigger::Hit { b: Party::Thing(_), .. }) || !matches!(t, Target::It | Target::Named(_)) {
+            return Err(c.err("a bite needs two things that touch").hint("\"When a hook touches a fish, the fish bites.\""));
+        }
+        return end(c, Action::Bite(t));
+    }
+    if !player && c.eat_all("it gets away") {
+        if !matches!(trig, Trigger::AtBottom { .. } | Trigger::Landed { .. }) {
+            return Err(c.err("only a hooked thing gets away").hint("\"When a hooked perch stays at the bottom for 3 seconds, it gets away.\""));
+        }
+        return end(c, Action::GetAway(Target::It));
+    }
+    if !player && c.eat_all("a new") {
+        let Some((kind, _)) = c.thing() else {
+            return Err(c.err("a new what?"));
+        };
+        if trig.it() != Some(kind.as_str()) {
+            return Err(c.err(format!("a new {kind}: the trigger is not about a {kind}")).hint("\"When a hooked perch reaches the hole, ... a new perch comes back after 3 seconds\""));
+        }
+        if !c.eat("comes") {
+            return Err(c.err(format!("what does the new {kind} do?")).hint("\"comes back after N seconds\" or \"comes in from the side after N seconds\""));
+        }
+        let side = if c.eat_all("in from the side") {
+            true
+        } else if c.eat("back") {
+            false
+        } else {
+            return Err(c.err("comes where?").hint("\"comes back\" or \"comes in from the side\""));
+        };
+        let mut after = None;
+        while !c.done() {
+            if c.glue() {
+                continue;
+            }
+            if let Some(v) = c.attempt(|c| {
+                if !c.eat("after") {
+                    return None;
+                }
+                let n = c.num()?;
+                (c.eat("seconds") || c.eat("second")).then_some(n)
+            }) {
+                once(&mut after, v, "\"after\"", c)?;
+            } else {
+                return Err(c.leftover());
+            }
+        }
+        let after = need(after, "when (\"after N seconds\")", c)?;
+        if after < 0.0 {
+            return Err(c.err("\"after\" can't be negative"));
+        }
+        return Ok(Action::ComeBack { kind, after, side });
+    }
     if player {
         return Err(c.err(format!("don't understand \"the player {}\"", c.rest()))
             .hint("has N lives, loses a life, wins, loses, goes back to the start"));
@@ -1209,14 +1486,50 @@ fn action(c: &mut Cur, trig: &Trigger) -> R<Action> {
         }
         return Err(c.err(format!("play what? \"{}\"", c.rest())).hint("\"play the coin sound\", \"play the jump animation on the player\""));
     }
+    if c.eat_all("show the shout meter") {
+        if *trig != Trigger::Start {
+            return Err(c.err("the shout meter is shown \"At the start, ...\" and stays"));
+        }
+        let mut place = None;
+        while !c.done() {
+            if c.glue() {
+                continue;
+            }
+            let p = if c.eat_all("at the top left") {
+                Place::TopLeft
+            } else if c.eat_all("at the top right") {
+                Place::TopRight
+            } else if c.eat_all("at the top") {
+                Place::Top
+            } else if c.eat_all("in the middle") {
+                Place::Middle
+            } else if c.eat_all("at the bottom") {
+                Place::Bottom
+            } else {
+                return Err(c.leftover());
+            };
+            once(&mut place, p, "a place", c)?;
+        }
+        return Ok(Action::Meter { place: place.unwrap_or(Place::Bottom) });
+    }
     if c.eat("show") {
         let Some(q) = c.quote() else {
             return Err(c.err("show what? (a quoted text)"));
         };
         let parts = template(&q, c)?;
-        let (mut place, mut col) = (None, None);
+        let (mut place, mut col, mut secs) = (None, None, None);
         while !c.done() {
             if c.glue() {
+                continue;
+            }
+            if let Some(v) = c.attempt(|c| {
+                if !c.eat("for") {
+                    return None;
+                }
+                let n = c.num()?;
+                (c.eat("seconds") || c.eat("second")).then_some(n)
+            }) {
+                once(&mut secs, positive(v, "the time shown", c)?, "\"for N seconds\"", c)?;
                 continue;
             }
             let p = if c.eat_all("at the top left") {
@@ -1248,8 +1561,8 @@ fn action(c: &mut Cur, trig: &Trigger) -> R<Action> {
                 return Err(c.leftover());
             }
         }
-        let live = *trig == Trigger::Start && parts.iter().any(|p| !matches!(p, Part::Text(_)));
-        return Ok(Action::Show { parts, place: place.unwrap_or(Place::TopLeft), color: col, live });
+        let live = secs.is_none() && *trig == Trigger::Start && parts.iter().any(|p| !matches!(p, Part::Text(_)));
+        return Ok(Action::Show { parts, place: place.unwrap_or(Place::TopLeft), color: col, live, secs });
     }
     if c.eat_all("bounce the player up") {
         let v = need(opt_speed(c), "a speed (\"at N units per second\")", c)?;
@@ -1300,7 +1613,7 @@ fn action(c: &mut Cur, trig: &Trigger) -> R<Action> {
         return Ok(Action::RandomShot { kind, aim, speed, sprite: sprite.unwrap_or_else(|| "bomb".into()), sound });
     }
     Err(c.err(format!("don't understand \"{}\"", c.rest()))
-        .hint("actions: destroy, add, the player has/loses/wins/goes back, play, show, bounce, squash, restart, start the next wave, a random X shoots"))
+        .hint("actions: destroy, add, the player has/loses/wins/goes back, play, show, bounce, squash, restart, start the next wave, a random X shoots, it bites, a new X comes back"))
 }
 
 fn end(c: &Cur, a: Action) -> R<Action> {
@@ -1411,6 +1724,18 @@ pub fn parse(src: &str, lenient: bool) -> Result<GameProgram, Vec<Diag>> {
     if sentences.is_empty() && diags.is_empty() {
         diags.push(Diag::new("no sentences").hint("describe the game's behaviour in sentences ending with ."));
     }
+    // "stays at the bottom" needs to know where the bottom is.
+    let deepest = sentences.iter().any(|s| matches!(s.body, Body::Standing(Standing::Hang { sink: Some(_), .. })));
+    for s in &sentences {
+        if let Body::Event { trigger: Trigger::AtBottom { .. }, .. } = s.body {
+            if !deepest {
+                diags.push(
+                    Diag::new(format!("\"{}\": the bottom is where a hook sinks to, and no hook sinks", s.text))
+                        .hint("add \"The hook hangs on a line from the hole, sinking at 1.5 units per second down to -9.\""),
+                );
+            }
+        }
+    }
     // Ids follow the order sentences appear in, errors included.
     for (i, s) in sentences.iter_mut().enumerate() {
         s.id = i;
@@ -1490,9 +1815,63 @@ mod tests {
                 parts: vec![Part::Text("TIME ".into()), Part::Countdown(60.0)],
                 place: Place::TopRight,
                 color: Some([1.0, 1.0, 0.0]),
-                live: true
+                live: true,
+                secs: None
             }
         );
+    }
+
+    #[test]
+    fn fishing_sentences_parse() {
+        let s = one("The hook hangs on a line from the hole, sinking at 1.5 units per second down to -9.");
+        assert_eq!(s.body, Body::Standing(Standing::Hang { kind: "hook".into(), anchor: "hole".into(), sink: Some((1.5, -9.0)) }));
+        let s = one("The hook rises while the player shouts or holds space, at up to 8 units per second as loud as the shout.");
+        assert_eq!(
+            s.body,
+            Body::Standing(Standing::Rise { kind: "hook".into(), speed: 8.0, voice: true, key: Some("space".into()), loud: true })
+        );
+        let s = one("Each hooked pike follows its hook, pulling it down at 3 units per second.");
+        assert_eq!(s.body, Body::Standing(Standing::Hooked { kind: "pike".into(), pull: Some(3.0), fight: false, bursts: false }));
+        let s = one("Each hooked pike follows its hook, fighting and pulling it down at 5 units per second in bursts.");
+        assert_eq!(s.body, Body::Standing(Standing::Hooked { kind: "pike".into(), pull: Some(5.0), fight: true, bursts: true }));
+        let s = parse(
+            "The hook hangs on a line from the hole, sinking at 1.5 units per second down to -9.
+             When a hooked pike stays at the bottom for 3 seconds, it gets away and show \"IT GOT AWAY\" in the middle for 1.5 seconds.",
+            false,
+        )
+        .unwrap()
+        .sentences
+        .remove(1);
+        let Body::Event { trigger, actions } = s.body else { panic!() };
+        assert_eq!(trigger, Trigger::AtBottom { kind: "pike".into(), secs: 3.0 });
+        assert_eq!(actions[0].act, Action::GetAway(Target::It));
+        assert!(matches!(actions[1].act, Action::Show { secs: Some(1.5), live: false, .. }));
+        let s = one("Each perch swims sideways within 12 units at 2 units per second.");
+        assert_eq!(s.body, Body::Standing(Standing::Patrol { kind: "perch".into(), range: 12.0, speed: 2.0, edges: true }));
+        let s = one("When a hook touches a fish and no fish is hooked, the fish bites.");
+        let Body::Event { trigger, actions } = s.body else { panic!() };
+        assert_eq!(trigger, Trigger::Hit { a: "hook".into(), b: Party::Thing("fish".into()), cond: Some(Cond::NoneHooked("fish".into())) });
+        assert_eq!(actions[0].act, Action::Bite(Target::Named("fish".into())));
+        let s = one("When a hooked roach reaches the hole, destroy it and a new roach comes in from the side after 2 seconds.");
+        let Body::Event { trigger, actions } = s.body else { panic!() };
+        assert_eq!(trigger, Trigger::Landed { kind: "roach".into(), place: "hole".into() });
+        assert_eq!(actions[1].act, Action::ComeBack { kind: "roach".into(), after: 2.0, side: true });
+        let s = one("At the start, show the shout meter at the bottom.");
+        let Body::Event { actions, .. } = s.body else { panic!() };
+        assert_eq!(actions[0].act, Action::Meter { place: Place::Bottom });
+    }
+
+    #[test]
+    fn fishing_sentences_are_checked() {
+        assert!(fails("The hook rises at 8 units per second.").contains("rises when"));
+        assert!(fails("The hook rises while the player holds space, at 8 units per second as loud as the shout.").contains("shouts"));
+        assert!(fails("The hook rises while the player shouts, at up to 8 units per second.").contains("up to"));
+        assert!(fails("When a shot hits an alien, a new perch comes back after 2 seconds.").contains("not about a perch"));
+        assert!(fails("Every 2 seconds, show the shout meter.").contains("At the start"));
+        assert!(fails("When the player touches a coin, it bites.").contains("two things"));
+        assert!(fails("When the player touches a coin, it gets away.").contains("hooked"));
+        assert!(fails("When a hooked perch stays at the bottom for 3 seconds, it gets away.").contains("no hook sinks"));
+        assert!(fails("Each hooked perch follows its hook, in bursts.").contains("needs a pull"));
     }
 
     #[test]

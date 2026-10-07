@@ -36,12 +36,18 @@ pub const THINGS: &[(&str, &str)] = &[
     ("shot", "shots"),
     ("bomb", "bombs"),
     ("shield", "shields"),
+    ("fish", "fish"),
+    ("perch", "perches"),
+    ("roach", "roaches"),
+    ("pike", "pikes"),
+    ("hook", "hooks"),
+    ("hole", "holes"),
 ];
 
 /// Sound effects Droid can play.
 pub const SOUNDS: &[&str] = &[
     "shoot", "laser", "hit", "explosion", "jump", "coin", "pickup", "powerup", "hurt", "click", "win", "lose",
-    "bounce", "step",
+    "bounce", "step", "splash",
 ];
 
 /// Music waveforms.
@@ -83,6 +89,10 @@ pub const GRAMMAR: &[&str] = &[
     "stepping", "squash", "the", "then", "time", "times", "to", "top", "touches", "toward", "towards",
     "turning", "twice", "unit", "units", "up", "using", "walks", "wander", "wanders", "wave", "waves",
     "where", "while", "wins", "with", "within", "patrols",
+    // fishing: hooks on lines, the shout, bites and catches
+    "after", "bites", "comes", "follows", "from", "hangs", "holds", "hooked", "its", "line", "loud", "meter",
+    "new", "or", "pulling", "rises", "shout", "shouts", "sinking", "swims", "fighting", "bursts", "stays", "gets",
+    "away",
 ];
 
 /// Every word the game language knows, sorted and unique.
@@ -313,6 +323,8 @@ mod tests {
     fn plurals_map_to_one_tag() {
         assert_eq!(thing("enemies"), Some(("enemy", true)));
         assert_eq!(thing("coin"), Some(("coin", false)));
+        assert_eq!(thing("fish"), Some(("fish", false)));
+        assert_eq!(thing("perches"), Some(("perch", true)));
     }
 
     #[test]
