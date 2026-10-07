@@ -182,6 +182,51 @@ pub struct GameTuning {
     pub meter_off: [f32; 3],
     /// "show ... for N seconds": text size of such messages (pixels).
     pub flash_size: f32,
+    /// "swims ...": each fish runs its own clock, (1 +- jitter/2) as fast as the game's, from a
+    /// seed made of its name; velocity eases to the target at `swim_turn_rate` (1/s), at
+    /// `swim_smooth_turn` with "turning smoothly"; it faces left or right once it moves faster
+    /// than `face_speed` that way.
+    pub swim_clock_jitter: f32,
+    pub swim_turn_rate: f32,
+    pub swim_smooth_turn: f32,
+    pub face_speed: f32,
+    /// "darting": every `dart_cycle` seconds a burst of `dart_secs` at `dart_boost` x the speed
+    /// (reached at `dart_rate`), then a glide that slows at `glide_rate` into a pause; at a burst
+    /// it turns with the chance `dart_turn_chance`.
+    pub dart_cycle: f32,
+    pub dart_secs: f32,
+    pub dart_boost: f32,
+    pub dart_rate: f32,
+    pub glide_rate: f32,
+    pub dart_turn_chance: f32,
+    /// "drifting": the speed swells by +- `drift_swing` of itself at `drift_rate` (rad/s).
+    pub drift_swing: f32,
+    pub drift_rate: f32,
+    /// "lurking": hovers at `lurk_low`..1 x the speed, the fins beating at `lurk_rate` (rad/s);
+    /// every `lurk_turn_secs` it turns with the chance `lurk_turn_chance`.
+    pub lurk_low: f32,
+    pub lurk_rate: f32,
+    pub lurk_turn_secs: f32,
+    pub lurk_turn_chance: f32,
+    /// "keeping its depth": drifts over `depth_share` of the band at `depth_rate` (rad/s); its
+    /// height follows the target at `depth_follow` (1/s).
+    pub depth_share: f32,
+    pub depth_rate: f32,
+    pub depth_follow: f32,
+    /// "in a wave N units high": cycles per second.
+    pub swim_wave_rate: f32,
+    /// "in a school": others within `school_radius` count; it closes in on them at `school_pull`
+    /// (1/s) and is pushed apart at `school_push` (1/s) inside `school_spacing` (units).
+    pub school_radius: f32,
+    pub school_spacing: f32,
+    pub school_pull: f32,
+    pub school_push: f32,
+    /// "nosing toward": at `nose_speed` x the speed, slowing within reach at `nose_ease` (1/s).
+    pub nose_speed: f32,
+    pub nose_ease: f32,
+    /// "lunging at": the dash lasts `lunge_secs`, the next can come `lunge_rest` seconds after it.
+    pub lunge_secs: f32,
+    pub lunge_rest: f32,
 }
 
 impl Config {
@@ -288,6 +333,23 @@ impl Config {
             ("music_bpm", t.music_bpm),
             ("hud_size", t.hud_size),
             ("banner_size", t.banner_size),
+            ("swim_turn_rate", t.swim_turn_rate),
+            ("swim_smooth_turn", t.swim_smooth_turn),
+            ("dart_cycle", t.dart_cycle),
+            ("dart_secs", t.dart_secs),
+            ("dart_boost", t.dart_boost),
+            ("dart_rate", t.dart_rate),
+            ("glide_rate", t.glide_rate),
+            ("drift_rate", t.drift_rate),
+            ("lurk_rate", t.lurk_rate),
+            ("lurk_turn_secs", t.lurk_turn_secs),
+            ("depth_rate", t.depth_rate),
+            ("depth_follow", t.depth_follow),
+            ("swim_wave_rate", t.swim_wave_rate),
+            ("school_radius", t.school_radius),
+            ("nose_speed", t.nose_speed),
+            ("nose_ease", t.nose_ease),
+            ("lunge_secs", t.lunge_secs),
         ];
         for (k, v) in positive {
             if !(v > 0.0) {
@@ -300,16 +362,34 @@ impl Config {
             ("stomp_height", t.stomp_height),
             ("chase_dead_zone", t.chase_dead_zone),
             ("line_gap", t.line_gap),
+            ("face_speed", t.face_speed),
+            ("school_spacing", t.school_spacing),
+            ("school_pull", t.school_pull),
+            ("school_push", t.school_push),
+            ("lunge_rest", t.lunge_rest),
         ];
         for (k, v) in non_negative {
             if !(v >= 0.0) {
                 bail!("rules.toml: game.tuning.{k} must be >= 0 (got {v})");
             }
         }
-        for (k, v) in [("squash_amount", t.squash_amount), ("wander_jitter", t.wander_jitter), ("blink_dim", t.blink_dim)] {
+        for (k, v) in [
+            ("squash_amount", t.squash_amount),
+            ("wander_jitter", t.wander_jitter),
+            ("blink_dim", t.blink_dim),
+            ("swim_clock_jitter", t.swim_clock_jitter),
+            ("dart_turn_chance", t.dart_turn_chance),
+            ("drift_swing", t.drift_swing),
+            ("lurk_low", t.lurk_low),
+            ("lurk_turn_chance", t.lurk_turn_chance),
+            ("depth_share", t.depth_share),
+        ] {
             if !(0.0..1.0).contains(&v) {
                 bail!("rules.toml: game.tuning.{k} must be in 0..1 (got {v})");
             }
+        }
+        if t.dart_secs >= t.dart_cycle {
+            bail!("rules.toml: game.tuning.dart_secs must be shorter than dart_cycle");
         }
         if t.lives < 1 {
             bail!("rules.toml: game.tuning.lives must be at least 1");

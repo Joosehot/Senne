@@ -57,6 +57,7 @@ pub mod show;
 pub mod sound;
 pub mod squash;
 pub mod start;
+pub mod swim;
 pub mod touch;
 pub mod wander;
 pub mod win;
@@ -203,6 +204,9 @@ pub struct Facts {
     pub hook_depth: Option<f32>,
     /// Something "gets away": it is shy for a while and doesn't bite.
     pub shy: bool,
+    /// Kinds with an "Animate each X ... while it is hooked." sentence: their other
+    /// animations skip the hooked ones.
+    pub hooked_anim: BTreeSet<String>,
 }
 
 impl Facts {
@@ -215,6 +219,10 @@ impl Facts {
                 }
                 Body::Standing(Standing::Shoot { aim: super::parser::Aim::Forward, .. }) => f.needs_aim = true,
                 Body::Standing(Standing::Hooked { .. }) => f.hooks = true,
+                Body::Standing(Standing::Animate { who: super::parser::Who::Each(k), hooked: true, .. }) => {
+                    f.hooks = true;
+                    f.hooked_anim.insert(k.clone());
+                }
                 Body::Standing(Standing::Hang { sink: Some((_, depth)), .. }) => {
                     f.hook_depth.get_or_insert(*depth);
                 }
@@ -369,6 +377,7 @@ pub fn registry() -> Vec<&'static dyn GamePattern> {
         &player_shoot::PlayerShoot,
         &chase::Chase,
         &patrol::Patrol,
+        &swim::Swim,
         &fly::Fly,
         &wander::Wander,
         &march::March,

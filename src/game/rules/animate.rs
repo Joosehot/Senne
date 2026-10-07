@@ -1,10 +1,14 @@
 //! "Animate each slime with "slime_1" and "slime_2" at N frames per second."
 //! "Animate the player with "hero_1" and "hero_2" at N frames per second while it walks."
+//! "Animate each perch with "perch_struggle_1" and "perch_struggle_2" at N frames per second while it is hooked."
 //!
+//! "while it is hooked" animates only the ones on a hook; another sentence for
+//! the same kind without it is the default and skips them, whatever the order.
 //! Variants: `clock` (pick the frame from the time every frame) and `engine`
 //! (hand the frames to Droid's sprite animator once at the start; only when
-//! nothing decides per frame: not "while it walks", and not for a kind that
-//! comes back in waves, since new ones would not be animated).
+//! nothing decides per frame: not "while it walks" or "while it is hooked", not
+//! for a kind that also has a hooked animation, and not for a kind that comes
+//! back in waves, since new ones would not be animated).
 
 use super::{block, f, s, At, Emitted, Facts, GamePattern, Node, Section};
 use crate::game::codegen::Gen;
@@ -23,16 +27,16 @@ impl GamePattern for Animate {
         matches!(n, Node::Standing(Standing::Animate { .. }))
     }
     fn variants(&self, n: &Node, facts: &Facts) -> Vec<&'static str> {
-        let Node::Standing(Standing::Animate { who, walking, .. }) = n else { return vec![] };
-        let respawns = matches!(who, Who::Each(k) if facts.respawned.contains(k));
-        if *walking || respawns {
+        let Node::Standing(Standing::Animate { who, walking, hooked, .. }) = n else { return vec![] };
+        let respawns = matches!(who, Who::Each(k) if facts.respawned.contains(k) || facts.hooked_anim.contains(k));
+        if *walking || *hooked || respawns {
             vec!["clock"]
         } else {
             vec!["clock", "engine"]
         }
     }
     fn emit(&self, variant: &str, n: &Node, g: &mut Gen, _at: &At, _body: Vec<String>) -> Emitted {
-        let Node::Standing(Standing::Animate { who, frames, fps, walking }) = n else { unreachable!() };
+        let Node::Standing(Standing::Animate { who, frames, fps, walking, hooked }) = n else { unreachable!() };
         let list = frames.iter().map(|x| s(x)).collect::<Vec<_>>().join(", ");
         if variant == "engine" {
             let l = match who {
@@ -46,6 +50,17 @@ impl GamePattern for Animate {
         }
         let mut l = vec![format!("let frame = [{list}][(cx.time() * {}) as usize % {}];", f(*fps), frames.len())];
         match who {
+            Who::Each(k) if *hooked => {
+                let map = super::hooked_map(g);
+                let set = block(format!("if {map}.contains_key(&n)"), vec!["cx.set_sprite(&n, frame);".into()]);
+                l.extend(block(format!("for n in cx.find_tag({})", s(k)), set));
+            }
+            Who::Each(k) if g.facts.hooked_anim.contains(k) => {
+                let map = super::hooked_map(g);
+                let mut body = block(format!("if {map}.contains_key(&n)"), vec!["continue;".into()]);
+                body.push("cx.set_sprite(&n, frame);".into());
+                l.extend(block(format!("for n in cx.find_tag({})", s(k)), body));
+            }
             Who::Each(k) => l.extend(block(format!("for n in cx.find_tag({})", s(k)), vec!["cx.set_sprite(&n, frame);".into()])),
             Who::Player if *walking => {
                 l.push("let v = cx.vel(\"player\");".into());
@@ -83,5 +98,35 @@ mod tests {
     fn walking_needs_the_clock_variant() {
         let c = code("Animate the player with \"a\" and \"b\" at 8 frames per second while it walks.");
         assert!(c.contains("[animate/clock]") && c.contains("let walking"), "{c}");
+    }
+
+    #[test]
+    fn hooked_frames_only_for_the_hooked_and_the_default_skips_them() {
+        // the hooked sentence first: the default must still leave the hooked ones alone
+        let c = code(
+            "Animate each perch with \"p_struggle_1\" and \"p_struggle_2\" at 12 frames per second while it is hooked.
+             Animate each perch with \"p_swim_1\" and \"p_swim_2\" at 8 frames per second.",
+        );
+        let hooked = c.find("let frame = [\"p_struggle_1\"").expect("hooked animation");
+        let swim = c.find("let frame = [\"p_swim_1\"").expect("default animation");
+        assert!(c[hooked..swim].contains("if self.hooked.contains_key(&n) {\n                cx.set_sprite(&n, frame);"), "{c}");
+        assert!(c[swim..].contains("if self.hooked.contains_key(&n) {\n                continue;"), "{c}");
+        assert!(!c.contains("[animate/engine]"), "{c}");
+    }
+
+    #[test]
+    fn without_a_hooked_sentence_the_default_may_use_the_engine() {
+        let c = code("Animate each perch with \"p_swim_1\" and \"p_swim_2\" at 8 frames per second.");
+        assert!(!c.contains("contains_key"), "{c}");
+    }
+
+    #[test]
+    fn while_it_is_hooked_is_not_for_the_player() {
+        let e = crate::game::parser::parse(
+            "Animate the player with \"a\" and \"b\" at 8 frames per second while it is hooked.",
+            false,
+        )
+        .unwrap_err();
+        assert!(format!("{e:?}").contains("while it is hooked"), "{e:?}");
     }
 }

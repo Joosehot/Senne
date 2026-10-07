@@ -1,9 +1,15 @@
 At the start, show "SCORE {score} / 50" at the top left in "#16324f", show "TIME {countdown 90}" at the top right in "#16324f" and show the shout meter at the bottom.
-The hook hangs on a line from the hole, sinking at 1.5 units per second down to -9.
+The hook hangs on a line from the hole, sinking at 1.5 units per second down to -8.3.
 The hook rises while the player shouts or holds space, at up to 8 units per second as loud as the shout.
-Each perch swims within 16 units at 2 units per second.
-Each roach swims within 16 units at 3 units per second.
-Each pike swims within 16 units at 1.5 units per second.
+Each perch swims in a school within 15 units at 2 units per second, darting, keeping its depth within 1.5 units and nosing toward the hook within 4 units.
+Each roach swims in a shoal within 15 units at 1.5 units per second, drifting, turning smoothly, in a wave 0.6 units high and keeping its depth within 1 unit.
+Each pike swims within 15 units at 1 unit per second, lurking, keeping its depth within 0.5 units and lunging at the hook within 6 units at 9 units per second.
+Animate each perch with "perch_swim_1", "perch_swim_2", "perch_swim_3", "perch_swim_4", "perch_swim_5", "perch_swim_6", "perch_swim_7" and "perch_swim_8" at 10 frames per second.
+Animate each roach with "roach_swim_1", "roach_swim_2", "roach_swim_3", "roach_swim_4", "roach_swim_5", "roach_swim_6", "roach_swim_7" and "roach_swim_8" at 12 frames per second.
+Animate each pike with "pike_swim_1", "pike_swim_2", "pike_swim_3", "pike_swim_4", "pike_swim_5", "pike_swim_6", "pike_swim_7" and "pike_swim_8" at 8 frames per second.
+Animate each perch with "perch_struggle_1", "perch_struggle_2", "perch_struggle_3", "perch_struggle_4", "perch_struggle_5" and "perch_struggle_6" at 12 frames per second while it is hooked.
+Animate each roach with "roach_struggle_1", "roach_struggle_2", "roach_struggle_3", "roach_struggle_4", "roach_struggle_5" and "roach_struggle_6" at 12 frames per second while it is hooked.
+Animate each pike with "pike_struggle_1", "pike_struggle_2", "pike_struggle_3", "pike_struggle_4", "pike_struggle_5" and "pike_struggle_6" at 10 frames per second while it is hooked.
 Each hooked perch follows its hook, fighting and pulling it down at 2 units per second in bursts.
 Each hooked roach follows its hook, fighting and pulling it down at 1.5 units per second in bursts.
 Each hooked pike follows its hook, fighting and pulling it down at 5 units per second in bursts.

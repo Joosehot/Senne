@@ -49,7 +49,9 @@ pub enum Standing {
     Wander { kind: String, speed: f32, turn: f32, ground: bool },
     March { kind: String, speed: f32, within: f32, step: f32, max_mult: Option<f32>, wave_pct: Option<f32> },
     EnemyShoot { kind: String, aim: Aim, speed: f32, every: f32, within: Option<f32>, sprite: String, sound: Option<String> },
-    Animate { who: Who, frames: Vec<String>, fps: f32, walking: bool },
+    /// `walking`: "while it walks" (the player); `hooked`: "while it is hooked" (a kind: only
+    /// the ones on a hook; a sentence for the same kind without it then skips them).
+    Animate { who: Who, frames: Vec<String>, fps: f32, walking: bool, hooked: bool },
     /// "The hook hangs on a line from the hole[, sinking at N units per second down to D]."
     Hang { kind: String, anchor: String, sink: Option<(f32, f32)> },
     /// "The hook rises while the player shouts [or holds space], at [up to] N units per second [as loud as the shout]."
@@ -57,6 +59,47 @@ pub enum Standing {
     /// "Each hooked perch follows its hook[, fighting][, pulling it down at N units per second[ in bursts]]."
     /// `fight`: it darts from side to side and jerks the hook; `bursts`: it pulls in surges with rests.
     Hooked { kind: String, pull: Option<f32>, fight: bool, bursts: bool },
+    /// "Each perch swims [in a school | in a shoal] within N units at N units per second" plus
+    /// how: a gait, "turning smoothly", "in a wave N units high", "keeping its depth within N
+    /// units", "nosing toward the hook within N units", "lunging at the hook within N units at
+    /// N units per second". Without any of these the sentence is a [`Standing::Patrol`].
+    Swim(Swim),
+}
+
+/// How a swimmer moves along: its speed over time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gait {
+    /// The same speed all the time.
+    Steady,
+    /// "darting": a quick burst, a glide that slows down, a short pause; it may turn at a burst.
+    Dart,
+    /// "drifting": calm, the speed swells and eases a little.
+    Drift,
+    /// "lurking": hovers almost still, the fins drifting it slowly; now and then it turns.
+    Lurk,
+}
+
+/// The parts of a swim sentence.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Swim {
+    pub kind: String,
+    /// Turns at x = +-within.
+    pub within: f32,
+    pub speed: f32,
+    /// "in a school" / "in a shoal": keeps together with the others of its kind, loosely spaced,
+    /// and turns with the school.
+    pub school: bool,
+    pub gait: Gait,
+    /// "turning smoothly": slows down before it turns.
+    pub smooth: bool,
+    /// "in a wave N units high": rises and sinks this much while it swims.
+    pub wave: Option<f32>,
+    /// "keeping its depth within N units": drifts within this of the depth it started at.
+    pub band: Option<f32>,
+    /// "nosing toward the hook within N units": (thing, distance).
+    pub nose: Option<(String, f32)>,
+    /// "lunging at the hook within N units at N units per second": (thing, distance, speed).
+    pub lunge: Option<(String, f32, f32)>,
 }
 
 /// An extra condition on a collision trigger: "and no coins are left", "and no fish is hooked".
@@ -768,7 +811,7 @@ fn animate(c: &mut Cur) -> R<Standing> {
     if frames.len() < 2 {
         return Err(c.err("an animation needs at least two quoted frames"));
     }
-    let (mut fps, mut walking) = (None, false);
+    let (mut fps, mut walking, mut hooked) = (None, false, false);
     while !c.done() {
         if c.glue() {
             continue;
@@ -783,6 +826,8 @@ fn animate(c: &mut Cur) -> R<Standing> {
             once(&mut fps, v, "a frame rate", c)?;
         } else if c.eat_all("while it walks") {
             flag(&mut walking, "while it walks", c)?;
+        } else if c.eat_all("while it is hooked") {
+            flag(&mut hooked, "while it is hooked", c)?;
         } else {
             return Err(c.leftover());
         }
@@ -791,7 +836,152 @@ fn animate(c: &mut Cur) -> R<Standing> {
     if walking && who != Who::Player {
         return Err(c.err("\"while it walks\" is for the player"));
     }
-    Ok(Standing::Animate { who, frames, fps, walking })
+    if hooked && who == Who::Player {
+        return Err(c.err("\"while it is hooked\" is for things on a hook (animate each perch ...)"));
+    }
+    if hooked && walking {
+        return Err(c.err("\"while it walks\" and \"while it is hooked\" are two conditions; give one"));
+    }
+    Ok(Standing::Animate { who, frames, fps, walking, hooked })
+}
+
+/// "Each perch swims ...": a patrol, or with any way of swimming a [`Swim`].
+fn swims(c: &mut Cur, kind: String) -> R<Standing> {
+    let save = c.i;
+    c.eat("sideways");
+    let side = c.attempt(|c| {
+        let n = c.num()?;
+        if !(c.eat("units") || c.eat("unit")) {
+            return None;
+        }
+        c.eat_all("to each side").then_some(n)
+    });
+    let (mut speed, mut within) = (None, None);
+    let (mut school, mut gait, mut smooth) = (false, None, false);
+    let (mut wave, mut band, mut nose, mut lunge) = (None, None, None, None);
+    while !c.done() {
+        if c.glue() {
+            continue;
+        }
+        if let Some(v) = opt_speed(c) {
+            once(&mut speed, v, "a speed", c)?;
+        } else if let Some(v) = opt_within(c) {
+            once(&mut within, v, "\"within\"", c)?;
+        } else if c.eat_all("in a school") || c.eat_all("in a shoal") {
+            flag(&mut school, "in a school", c)?;
+        } else if c.eat("darting") {
+            once(&mut gait, Gait::Dart, "how it swims (darting, drifting or lurking)", c)?;
+        } else if c.eat("drifting") {
+            once(&mut gait, Gait::Drift, "how it swims (darting, drifting or lurking)", c)?;
+        } else if c.eat("lurking") {
+            once(&mut gait, Gait::Lurk, "how it swims (darting, drifting or lurking)", c)?;
+        } else if c.eat_all("turning smoothly") {
+            flag(&mut smooth, "turning smoothly", c)?;
+        } else if let Some(v) = c.attempt(|c| {
+            if !c.eat_all("in a wave") {
+                return None;
+            }
+            let n = c.num()?;
+            if !(c.eat("units") || c.eat("unit")) {
+                return None;
+            }
+            c.eat("high").then_some(n)
+        }) {
+            once(&mut wave, positive(v, "the wave height", c)?, "\"in a wave\"", c)?;
+        } else if let Some(v) = c.attempt(|c| {
+            if !c.eat_all("keeping its depth") {
+                return None;
+            }
+            opt_within(c)
+        }) {
+            once(&mut band, positive(v, "the depth band", c)?, "\"keeping its depth\"", c)?;
+        } else if let Some((t, d)) = c.attempt(|c| {
+            if !(c.eat_all("nosing toward") || c.eat_all("nosing towards")) {
+                return None;
+            }
+            c.article();
+            let (t, _) = c.thing()?;
+            Some((t, opt_within(c)?))
+        }) {
+            once(&mut nose, (t, positive(d, "the nosing distance", c)?), "\"nosing toward\"", c)?;
+        } else if let Some((t, d, v)) = c.attempt(|c| {
+            if !c.eat_all("lunging at") {
+                return None;
+            }
+            c.article();
+            let (t, _) = c.thing()?;
+            let d = opt_within(c)?;
+            Some((t, d, opt_speed(c)?))
+        }) {
+            let d = positive(d, "the lunge distance", c)?;
+            once(&mut lunge, (t, d, positive(v, "the lunge speed", c)?), "\"lunging at\"", c)?;
+        } else {
+            return Err(c.leftover());
+        }
+    }
+    let how = school || gait.is_some() || smooth || wave.is_some() || band.is_some() || nose.is_some() || lunge.is_some();
+    if !how {
+        c.i = save;
+        return patrol(c, kind);
+    }
+    if side.is_some() {
+        return Err(c.err("a fish that swims its own way turns at the edges: \"within N units\", not \"to each side\""));
+    }
+    for (t, what) in [(nose.as_ref().map(|n| &n.0), "nosing toward"), (lunge.as_ref().map(|l| &l.0), "lunging at")] {
+        if t == Some(&kind) {
+            return Err(c.err(format!("a {kind} can't go \"{what}\" itself")));
+        }
+    }
+    let within = positive(need(within, "the bounds (\"within N units\")", c)?, "\"within\"", c)?;
+    let speed = positive(need(speed, "a speed (\"at N units per second\")", c)?, "the speed", c)?;
+    Ok(Standing::Swim(Swim {
+        kind,
+        within,
+        speed,
+        school,
+        gait: gait.unwrap_or(Gait::Steady),
+        smooth,
+        wave,
+        band,
+        nose,
+        lunge,
+    }))
+}
+
+/// "patrols / swims N units to each side" or "within N units".
+fn patrol(c: &mut Cur, kind: String) -> R<Standing> {
+    c.eat("sideways");
+    let side = c.attempt(|c| {
+        let n = c.num()?;
+        if !(c.eat("units") || c.eat("unit")) {
+            return None;
+        }
+        c.eat_all("to each side").then_some(n)
+    });
+    let (mut speed, mut within) = (None, None);
+    while !c.done() {
+        if c.glue() {
+            continue;
+        }
+        if let Some(v) = opt_speed(c) {
+            once(&mut speed, v, "a speed", c)?;
+        } else if let Some(v) = opt_within(c) {
+            once(&mut within, v, "\"within\"", c)?;
+        } else {
+            return Err(c.leftover());
+        }
+    }
+    let (range, edges) = match (side, within) {
+        (Some(r), None) => (r, false),
+        (None, Some(w)) => (w, true),
+        (Some(_), Some(_)) => return Err(c.err("\"to each side\" and \"within\" are two ranges; give one")),
+        (None, None) => {
+            return Err(c.err("how far?").hint("\"patrols 3 units to each side\" or \"swims within 12 units\""))
+        }
+    };
+    let range = positive(range, "the patrol range", c)?;
+    let speed = positive(need(speed, "a speed (\"at N units per second\")", c)?, "the speed", c)?;
+    Ok(Standing::Patrol { kind, range, speed, edges })
 }
 
 fn each(c: &mut Cur, kind: String) -> R<Standing> {
@@ -838,39 +1028,11 @@ fn each(c: &mut Cur, kind: String) -> R<Standing> {
         let speed = positive(need(speed, "a speed (\"at N units per second\")", c)?, "the speed", c)?;
         return Ok(Standing::Chase { kind, speed, mode, within, speedup });
     }
-    if c.eat("patrols") || c.eat("swims") {
-        c.eat("sideways");
-        let side = c.attempt(|c| {
-            let n = c.num()?;
-            if !(c.eat("units") || c.eat("unit")) {
-                return None;
-            }
-            c.eat_all("to each side").then_some(n)
-        });
-        let (mut speed, mut within) = (None, None);
-        while !c.done() {
-            if c.glue() {
-                continue;
-            }
-            if let Some(v) = opt_speed(c) {
-                once(&mut speed, v, "a speed", c)?;
-            } else if let Some(v) = opt_within(c) {
-                once(&mut within, v, "\"within\"", c)?;
-            } else {
-                return Err(c.leftover());
-            }
-        }
-        let (range, edges) = match (side, within) {
-            (Some(r), None) => (r, false),
-            (None, Some(w)) => (w, true),
-            (Some(_), Some(_)) => return Err(c.err("\"to each side\" and \"within\" are two ranges; give one")),
-            (None, None) => {
-                return Err(c.err("how far?").hint("\"patrols 3 units to each side\" or \"swims within 12 units\""))
-            }
-        };
-        let range = positive(range, "the patrol range", c)?;
-        let speed = positive(need(speed, "a speed (\"at N units per second\")", c)?, "the speed", c)?;
-        return Ok(Standing::Patrol { kind, range, speed, edges });
+    if c.eat("swims") {
+        return swims(c, kind);
+    }
+    if c.eat("patrols") {
+        return patrol(c, kind);
     }
     if c.eat("hangs") {
         return hang(c, kind);
@@ -1859,6 +2021,35 @@ mod tests {
         let s = one("At the start, show the shout meter at the bottom.");
         let Body::Event { actions, .. } = s.body else { panic!() };
         assert_eq!(actions[0].act, Action::Meter { place: Place::Bottom });
+    }
+
+    #[test]
+    fn swim_sentences_parse_in_any_order() {
+        let s = one("Each pike swims within 16 units, lunging at the hook within 4 units at 9 units per second, lurking, at 0.6 units per second and keeping its depth within 0.5 units.");
+        assert_eq!(
+            s.body,
+            Body::Standing(Standing::Swim(Swim {
+                kind: "pike".into(),
+                within: 16.0,
+                speed: 0.6,
+                school: false,
+                gait: Gait::Lurk,
+                smooth: false,
+                wave: None,
+                band: Some(0.5),
+                nose: None,
+                lunge: Some(("hook".into(), 4.0, 9.0)),
+            }))
+        );
+        let s = one("Each roach swims in a shoal within 16 units at 1.5 units per second, drifting, turning smoothly and in a wave 0.6 units high.");
+        let Body::Standing(Standing::Swim(w)) = s.body else { panic!() };
+        assert!(w.school && w.smooth && w.gait == Gait::Drift && w.wave == Some(0.6) && w.nose.is_none());
+        let s = one("Each perch swims in a school within 16 units at 2 units per second, darting and nosing toward the hook within 4 units.");
+        let Body::Standing(Standing::Swim(w)) = s.body else { panic!() };
+        assert_eq!((w.gait, w.nose), (Gait::Dart, Some(("hook".into(), 4.0))));
+        // "while it is hooked"
+        let s = one("Animate each perch with \"a\" and \"b\" at 12 frames per second while it is hooked.");
+        assert!(matches!(s.body, Body::Standing(Standing::Animate { hooked: true, walking: false, .. })));
     }
 
     #[test]

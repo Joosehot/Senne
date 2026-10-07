@@ -11,9 +11,9 @@ struct DroidGame {
     clock: f32,
     line_hook: BTreeMap<String, String>,
     hooked: BTreeMap<String, String>,
-    patrol_perch: BTreeMap<String, f32>,
-    patrol_roach: BTreeMap<String, f32>,
-    patrol_pike: BTreeMap<String, f32>,
+    swim_perch: BTreeMap<String, (f32, f32, f32, f32, f32, f32)>,
+    swim_roach: BTreeMap<String, (f32, f32, f32, f32, f32, f32)>,
+    swim_pike: BTreeMap<String, (f32, f32, f32, f32, f32, f32)>,
     hooked_at: BTreeMap<String, f32>,
     flash_middle: f32,
     shy: BTreeMap<String, f32>,
@@ -31,9 +31,9 @@ impl Default for DroidGame {
             clock: 0.0,
             line_hook: BTreeMap::new(),
             hooked: BTreeMap::new(),
-            patrol_perch: BTreeMap::new(),
-            patrol_roach: BTreeMap::new(),
-            patrol_pike: BTreeMap::new(),
+            swim_perch: BTreeMap::new(),
+            swim_roach: BTreeMap::new(),
+            swim_pike: BTreeMap::new(),
             hooked_at: BTreeMap::new(),
             flash_middle: 0.0,
             shy: BTreeMap::new(),
@@ -93,9 +93,9 @@ impl Game for DroidGame {
                 }
             }
         }
-        // "The hook hangs on a line from the hole, sinking at 1.5 units per second down to -9." [hang/tracked]
+        // "The hook hangs on a line from the hole, sinking at 1.5 units per second down to -8.3." [hang/tracked]
         for n in cx.find_tag("hook") {
-            if cx.pos(&n).y > -9.0 {
+            if cx.pos(&n).y > -8.3 {
                 cx.move_by(&n, vec2(0.0, -1.5 * dt));
             }
         }
@@ -108,41 +108,172 @@ impl Game for DroidGame {
                 cx.move_by(&n, vec2(0.0, lift * dt));
             }
         }
-        // "Each perch swims within 16 units at 2 units per second." [patrol/bounds]
-        for n in cx.find_tag("perch") {
-            if self.hooked.contains_key(&n) {
-                continue;
+        // "Each perch swims in a school within 15 units at 2 units per second, darting, keeping its depth within 1.5 units and nosing toward the hook within 4 units." [swim/steer]
+        let near = cx.find_tag("hook").first().map(|h| cx.pos(h));
+        let school: Vec<(String, Vec3)> = cx.find_tag("perch").into_iter().filter(|n| !self.hooked.contains_key(n)).map(|n| { let p = cx.pos(&n); (n, p) }).collect();
+        for (n, p) in school.clone() {
+            let (home, dir, vx, beat, lunge, wait) = *self.swim_perch.entry(n.clone()).or_insert((p.y, if p.x > 0.0 { -1.0 } else { 1.0 }, 0.0, -1.0, 0.0, 0.0));
+            // its own clock, from a seed made of its name
+            let seed = (n.bytes().fold(17u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b))) % 1000) as f32 / 1000.0;
+            let t = self.clock * (0.85 + 0.3 * seed) + seed * 7.0;
+            // darting: a quick burst, then a glide that slows into a short pause
+            let cycle = t / 1.8;
+            let turn = cycle.floor() != beat && ((cycle.floor() + seed * 31.0).sin() * 437.585).fract().abs() < 0.3;
+            let beat = cycle.floor();
+            let dir = if turn { -dir } else { dir };
+            let burst = cycle.fract() * 1.8 < 0.35;
+            let go = if burst { 5.2 } else { 0.0 };
+            let rate = if burst { 9.0 } else { 2.2 };
+            // the school: turn with its first fish, close in on the others, keep loose spacing
+            let (mut mid, mut count, mut push, mut lead) = (Vec3::ZERO, 0.0, Vec3::ZERO, None);
+            for (o, q) in &school {
+                let d = *q - p;
+                if d.length() < 5.0 {
+                    if lead.is_none() {
+                        lead = Some(o.clone());
+                    }
+                    if *o != n {
+                        mid += *q;
+                        count += 1.0;
+                        if d.length() < 1.6 {
+                            push -= d.normalize_or_zero() * (1.6 - d.length());
+                        }
+                    }
+                }
             }
-            let x = cx.pos(&n).x;
-            let dir = *self.patrol_perch.entry(n.clone()).or_insert(if x > 0.0 { -1.0 } else { 1.0 });
-            let dir = if x > 16.0 { -1.0 } else if x < -16.0 { 1.0 } else { dir };
-            cx.set_vel_x(&n, dir * 2.0);
-            cx.set_flip_x(&n, dir < 0.0);
-            self.patrol_perch.insert(n, dir);
-        }
-        // "Each roach swims within 16 units at 3 units per second." [patrol/bounds]
-        for n in cx.find_tag("roach") {
-            if self.hooked.contains_key(&n) {
-                continue;
+            let dir = lead.filter(|o| *o != n).and_then(|o| self.swim_perch.get(&o)).map_or(dir, |o| o.1);
+            let pull = if count > 0.0 { (mid * (1.0 / count) - p) * 0.35 } else { Vec3::ZERO } + push * 1.5;
+            let dir = if p.x > 15.0 { -1.0 } else if p.x < -15.0 { 1.0 } else { dir };
+            // curious: noses toward it when it is near
+            let nose = near.filter(|h| (*h - p).length() < 4.0);
+            let dir = nose.map_or(dir, |h| if h.x < p.x { -1.0 } else { 1.0 });
+            let go = nose.map_or(go, |h| ((h.x - p.x).abs() * 1.5).min(1.0));
+            let vx = vx + (dir * go - vx) * (1.0 - (-rate * dt).exp());
+            let ty = (home + (t * 0.35 + seed * 6.283).sin() * 1.05).clamp(home - 1.5, home + 1.5);
+            let ty = nose.map_or(ty, |h| h.y.clamp(home - 1.5, home + 1.5));
+            let vy = (ty - p.y) * 1.2;
+            cx.set_vel(&n, vec2(vx + pull.x, vy + pull.y));
+            if vx.abs() > 0.15 {
+                cx.set_flip_x(&n, vx < 0.0);
             }
-            let x = cx.pos(&n).x;
-            let dir = *self.patrol_roach.entry(n.clone()).or_insert(if x > 0.0 { -1.0 } else { 1.0 });
-            let dir = if x > 16.0 { -1.0 } else if x < -16.0 { 1.0 } else { dir };
-            cx.set_vel_x(&n, dir * 3.0);
-            cx.set_flip_x(&n, dir < 0.0);
-            self.patrol_roach.insert(n, dir);
+            self.swim_perch.insert(n, (home, dir, vx, beat, lunge, wait));
         }
-        // "Each pike swims within 16 units at 1.5 units per second." [patrol/bounds]
+        // "Each roach swims in a shoal within 15 units at 1.5 units per second, drifting, turning smoothly, in a wave 0.6 units high and keeping its depth within 1 unit." [swim/steer]
+        let school: Vec<(String, Vec3)> = cx.find_tag("roach").into_iter().filter(|n| !self.hooked.contains_key(n)).map(|n| { let p = cx.pos(&n); (n, p) }).collect();
+        for (n, p) in school.clone() {
+            let (home, dir, vx, beat, lunge, wait) = *self.swim_roach.entry(n.clone()).or_insert((p.y, if p.x > 0.0 { -1.0 } else { 1.0 }, 0.0, -1.0, 0.0, 0.0));
+            // its own clock, from a seed made of its name
+            let seed = (n.bytes().fold(17u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b))) % 1000) as f32 / 1000.0;
+            let t = self.clock * (0.85 + 0.3 * seed) + seed * 7.0;
+            // drifting: calm, the speed swells and eases
+            let go = 1.5 * (1.0 + 0.25 * (t * 0.6).sin());
+            let rate = 1.2;
+            // the school: turn with its first fish, close in on the others, keep loose spacing
+            let (mut mid, mut count, mut push, mut lead) = (Vec3::ZERO, 0.0, Vec3::ZERO, None);
+            for (o, q) in &school {
+                let d = *q - p;
+                if d.length() < 5.0 {
+                    if lead.is_none() {
+                        lead = Some(o.clone());
+                    }
+                    if *o != n {
+                        mid += *q;
+                        count += 1.0;
+                        if d.length() < 1.6 {
+                            push -= d.normalize_or_zero() * (1.6 - d.length());
+                        }
+                    }
+                }
+            }
+            let dir = lead.filter(|o| *o != n).and_then(|o| self.swim_roach.get(&o)).map_or(dir, |o| o.1);
+            let pull = if count > 0.0 { (mid * (1.0 / count) - p) * 0.35 } else { Vec3::ZERO } + push * 1.5;
+            let dir = if p.x > 15.0 { -1.0 } else if p.x < -15.0 { 1.0 } else { dir };
+            let vx = vx + (dir * go - vx) * (1.0 - (-rate * dt).exp());
+            let ty = (home + (t * 0.35 + seed * 6.283).sin() * 0.7 + (t * 1.5707964).sin() * 0.3).clamp(home - 1.0, home + 1.0);
+            let vy = (ty - p.y) * 1.2;
+            cx.set_vel(&n, vec2(vx + pull.x, vy + pull.y));
+            if vx.abs() > 0.15 {
+                cx.set_flip_x(&n, vx < 0.0);
+            }
+            self.swim_roach.insert(n, (home, dir, vx, beat, lunge, wait));
+        }
+        // "Each pike swims within 15 units at 1 unit per second, lurking, keeping its depth within 0.5 units and lunging at the hook within 6 units at 9 units per second." [swim/steer]
+        let near = cx.find_tag("hook").first().map(|h| cx.pos(h));
         for n in cx.find_tag("pike") {
             if self.hooked.contains_key(&n) {
                 continue;
             }
-            let x = cx.pos(&n).x;
-            let dir = *self.patrol_pike.entry(n.clone()).or_insert(if x > 0.0 { -1.0 } else { 1.0 });
-            let dir = if x > 16.0 { -1.0 } else if x < -16.0 { 1.0 } else { dir };
-            cx.set_vel_x(&n, dir * 1.5);
-            cx.set_flip_x(&n, dir < 0.0);
-            self.patrol_pike.insert(n, dir);
+            let p = cx.pos(&n);
+            let (home, dir, vx, beat, lunge, wait) = *self.swim_pike.entry(n.clone()).or_insert((p.y, if p.x > 0.0 { -1.0 } else { 1.0 }, 0.0, -1.0, 0.0, 0.0));
+            // its own clock, from a seed made of its name
+            let seed = (n.bytes().fold(17u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b))) % 1000) as f32 / 1000.0;
+            let t = self.clock * (0.85 + 0.3 * seed) + seed * 7.0;
+            // lurking: hovers almost still, the fins drifting it slowly; now and then it turns
+            let cycle = t / 5.0;
+            let turn = cycle.floor() != beat && ((cycle.floor() + seed * 31.0).sin() * 437.585).fract().abs() < 0.3;
+            let beat = cycle.floor();
+            let dir = if turn { -dir } else { dir };
+            let go = 1.0 * (0.1 + 0.9 * (0.5 + 0.5 * (t * 0.8).sin()));
+            let rate = 6.0;
+            let dir = if p.x > 15.0 { -1.0 } else if p.x < -15.0 { 1.0 } else { dir };
+            let vx = vx + (dir * go - vx) * (1.0 - (-rate * dt).exp());
+            let ty = (home + (t * 0.35 + seed * 6.283).sin() * 0.35).clamp(home - 0.5, home + 0.5);
+            let vy = (ty - p.y) * 1.2;
+            // lunging: a sudden dash at it when it comes near, then a glide back
+            let start = lunge <= 0.0 && self.clock >= wait && near.is_some_and(|h| (h - p).length() < 6.0);
+            let (lunge, wait) = if start { (0.7, self.clock + 3.2) } else { ((lunge - dt).max(0.0), wait) };
+            let dash = near.filter(|_| lunge > 0.0).map(|h| (h - p).normalize_or_zero() * 9.0);
+            let (vx, vy) = dash.map_or((vx, vy), |d| (d.x, d.y));
+            cx.set_vel(&n, vec2(vx, vy));
+            if vx.abs() > 0.15 {
+                cx.set_flip_x(&n, vx < 0.0);
+            }
+            self.swim_pike.insert(n, (home, dir, vx, beat, lunge, wait));
+        }
+        // "Animate each perch with "perch_swim_1", "perch_swim_2", "perch_swim_3", "perch_swim_4", "perch_swim_5", "perch_swim_6", "perch_swim_7" and "perch_swim_8" at 10 frames per second." [animate/clock]
+        let frame = ["perch_swim_1", "perch_swim_2", "perch_swim_3", "perch_swim_4", "perch_swim_5", "perch_swim_6", "perch_swim_7", "perch_swim_8"][(cx.time() * 10.0) as usize % 8];
+        for n in cx.find_tag("perch") {
+            if self.hooked.contains_key(&n) {
+                continue;
+            }
+            cx.set_sprite(&n, frame);
+        }
+        // "Animate each roach with "roach_swim_1", "roach_swim_2", "roach_swim_3", "roach_swim_4", "roach_swim_5", "roach_swim_6", "roach_swim_7" and "roach_swim_8" at 12 frames per second." [animate/clock]
+        let frame = ["roach_swim_1", "roach_swim_2", "roach_swim_3", "roach_swim_4", "roach_swim_5", "roach_swim_6", "roach_swim_7", "roach_swim_8"][(cx.time() * 12.0) as usize % 8];
+        for n in cx.find_tag("roach") {
+            if self.hooked.contains_key(&n) {
+                continue;
+            }
+            cx.set_sprite(&n, frame);
+        }
+        // "Animate each pike with "pike_swim_1", "pike_swim_2", "pike_swim_3", "pike_swim_4", "pike_swim_5", "pike_swim_6", "pike_swim_7" and "pike_swim_8" at 8 frames per second." [animate/clock]
+        let frame = ["pike_swim_1", "pike_swim_2", "pike_swim_3", "pike_swim_4", "pike_swim_5", "pike_swim_6", "pike_swim_7", "pike_swim_8"][(cx.time() * 8.0) as usize % 8];
+        for n in cx.find_tag("pike") {
+            if self.hooked.contains_key(&n) {
+                continue;
+            }
+            cx.set_sprite(&n, frame);
+        }
+        // "Animate each perch with "perch_struggle_1", "perch_struggle_2", "perch_struggle_3", "perch_struggle_4", "perch_struggle_5" and "perch_struggle_6" at 12 frames per second while it is hooked." [animate/clock]
+        let frame = ["perch_struggle_1", "perch_struggle_2", "perch_struggle_3", "perch_struggle_4", "perch_struggle_5", "perch_struggle_6"][(cx.time() * 12.0) as usize % 6];
+        for n in cx.find_tag("perch") {
+            if self.hooked.contains_key(&n) {
+                cx.set_sprite(&n, frame);
+            }
+        }
+        // "Animate each roach with "roach_struggle_1", "roach_struggle_2", "roach_struggle_3", "roach_struggle_4", "roach_struggle_5" and "roach_struggle_6" at 12 frames per second while it is hooked." [animate/clock]
+        let frame = ["roach_struggle_1", "roach_struggle_2", "roach_struggle_3", "roach_struggle_4", "roach_struggle_5", "roach_struggle_6"][(cx.time() * 12.0) as usize % 6];
+        for n in cx.find_tag("roach") {
+            if self.hooked.contains_key(&n) {
+                cx.set_sprite(&n, frame);
+            }
+        }
+        // "Animate each pike with "pike_struggle_1", "pike_struggle_2", "pike_struggle_3", "pike_struggle_4", "pike_struggle_5" and "pike_struggle_6" at 10 frames per second while it is hooked." [animate/clock]
+        let frame = ["pike_struggle_1", "pike_struggle_2", "pike_struggle_3", "pike_struggle_4", "pike_struggle_5", "pike_struggle_6"][(cx.time() * 10.0) as usize % 6];
+        for n in cx.find_tag("pike") {
+            if self.hooked.contains_key(&n) {
+                cx.set_sprite(&n, frame);
+            }
         }
         // "Each hooked perch follows its hook, fighting and pulling it down at 2 units per second in bursts." [hooked/copy]
         for (fish, hook) in self.hooked.clone() {
@@ -266,7 +397,7 @@ impl Game for DroidGame {
             if !cx.has_tag(&n, "fish") {
                 continue;
             }
-            let down = cx.pos(&hook).y <= -8.8;
+            let down = cx.pos(&hook).y <= -8.1;
             let held = if down { self.bottom_fish.get(&n).copied().unwrap_or(0.0) + dt } else { 0.0 };
             self.bottom_fish.insert(n.clone(), held);
             if held >= 3.0 {
@@ -303,11 +434,11 @@ impl Game for DroidGame {
             }
         }
         self.time_90_0 = reached;
-        // "The hook hangs on a line from the hole, sinking at 1.5 units per second down to -9." [hang/tracked]
+        // "The hook hangs on a line from the hole, sinking at 1.5 units per second down to -8.3." [hang/tracked]
         if let Some(top) = cx.find_tag("hole").first().map(|h| cx.pos(h)) {
             for n in cx.find_tag("hook") {
                 let p = cx.pos(&n);
-                let y = p.y.clamp(-9.0, top.y);
+                let y = p.y.clamp(-8.3, top.y);
                 let x = top.x + (p.x - top.x) * (-6.0 * dt).exp();
                 cx.set_pos(&n, vec2(x, y));
                 let line = match self.line_hook.get(&n) {

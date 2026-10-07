@@ -93,6 +93,8 @@ pub const GRAMMAR: &[&str] = &[
     "after", "bites", "comes", "follows", "from", "hangs", "holds", "hooked", "its", "line", "loud", "meter",
     "new", "or", "pulling", "rises", "shout", "shouts", "sinking", "swims", "fighting", "bursts", "stays", "gets",
     "away",
+    // how fish swim: schools, gaits, depth, curiosity and lunges
+    "school", "shoal", "darting", "drifting", "lurking", "keeping", "depth", "nosing", "lunging",
 ];
 
 /// Every word the game language knows, sorted and unique.
