@@ -45,7 +45,7 @@ impl GamePattern for Swim {
         let t = g.t;
         let clock = g.clock();
         let hooked = if g.facts.hooks { Some(super::hooked_map(g)) } else { None };
-        let map = g.fresh(&format!("swim_{}", w.kind), "BTreeMap<String, (f32, f32, f32, f32, f32, f32)>", "BTreeMap::new()");
+        let map = super::swim_map(g, &w.kind);
         let speed = w.speed;
         let rate = if w.smooth { t.swim_smooth_turn } else { t.swim_turn_rate };
         let uses_t = w.gait != Gait::Steady || w.band.is_some() || w.wave.is_some();

@@ -1,7 +1,8 @@
 //! "When the score reaches 50, ..." / "When the time reaches 60 seconds, ..."
-//! — edge-triggered like `none_left`: once when the value gets there.
+//! — edge-triggered like `none_left`: once when the value gets there. "The harder the game, the
+//! shorter the time" scales the seconds by `level_time`.
 
-use super::{block, f, At, Emitted, GamePattern, Node, Section};
+use super::{block, f, maybe_leveled, At, Emitted, GamePattern, Node, Section};
 use crate::game::codegen::Gen;
 use crate::game::parser::Trigger;
 
@@ -26,7 +27,9 @@ impl GamePattern for Reaches {
             Node::Trigger(Trigger::Time(t)) => {
                 let clock = g.clock();
                 let name = format!("time_{}", f(*t).replace(['.', '-'], "_"));
-                (g.fresh(&name, "bool", "false"), format!("{clock} >= {}", f(*t)))
+                let (on, table) = (g.facts.harder.time, g.t.level_time);
+                let at = maybe_leveled(g, *t, on, table);
+                (g.fresh(&name, "bool", "false"), format!("{clock} >= {at}"))
             }
             _ => unreachable!(),
         };

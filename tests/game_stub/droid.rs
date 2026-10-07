@@ -194,6 +194,8 @@ impl<'a> Ctx<'a> {
     pub fn destroy_tag(&mut self, tag: &str) {}
     pub fn text(&mut self, id: &str, s: &str) {}
     pub fn text_at(&mut self, id: &str, s: &str, x: f32, y: f32, size: f32) {}
+    pub fn rect_at(&mut self, id: &str, x: f32, y: f32, w: f32, h: f32, color: Vec3) {}
+    pub fn remove_rect(&mut self, id: &str) {}
     pub fn text_color(&mut self, id: &str, c: Vec3) {}
     pub fn play_sound(&mut self, name: &str) {}
     pub fn play_music(&mut self, bpm: f32, notes: &str, wave: &str) {}

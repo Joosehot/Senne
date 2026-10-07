@@ -98,6 +98,11 @@ pub const GRAMMAR: &[&str] = &[
     "school", "shoal", "darting", "drifting", "lurking", "keeping", "depth", "nosing", "lunging",
     // jigging: the line from the rod tip, the twitch, the flutter, fish drawn to the lure
     "tip", "through", "eye", "jigs", "jigged", "lifting", "flutters", "drawn",
+    // bites by chance: once per jig, by the rhythm, the distance and the kind
+    "chance", "jig", "jigging", "more", "less", "steady", "rhythm", "frantic", "farther",
+    // levels: chosen at the start, and what a harder game changes
+    "chooses", "easy", "normal", "hard", "harder", "stronger", "pull", "they", "bite", "louder", "must", "be",
+    "sooner", "get", "shorter",
 ];
 
 /// Every word the game language knows, sorted and unique.

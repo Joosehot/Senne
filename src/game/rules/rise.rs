@@ -6,9 +6,10 @@
 //! speed. Variants with "as loud as the shout": `linear` (speed = top x
 //! loudness once over the threshold) and `ramp` (speed grows from 0 at the
 //! threshold to the top at full voice: a murmur just over it barely moves).
-//! Without it: `constant` (top speed while it counts as a shout).
+//! Without it: `constant` (top speed while it counts as a shout). "The harder the game, the
+//! louder the shout must be" scales the threshold by `level_shout`.
 
-use super::{block, f, s, At, Emitted, Facts, GamePattern, Node, Section};
+use super::{block, f, s, shout_threshold, At, Emitted, Facts, GamePattern, Node, Section};
 use crate::game::codegen::Gen;
 use crate::game::parser::Standing;
 
@@ -32,7 +33,7 @@ impl GamePattern for Rise {
     }
     fn emit(&self, variant: &str, n: &Node, g: &mut Gen, _at: &At, _body: Vec<String>) -> Emitted {
         let Node::Standing(Standing::Rise { kind, speed, voice, key, .. }) = n else { unreachable!() };
-        let (top, th) = (f(*speed), f(g.t.shout_threshold));
+        let (top, th) = (f(*speed), shout_threshold(g));
         let mut l = Vec::new();
         if *voice {
             l.push("let shout = cx.voice();".to_string());

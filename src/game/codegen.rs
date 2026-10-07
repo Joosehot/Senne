@@ -45,6 +45,7 @@ pub struct Gen<'a> {
     pub init: Vec<String>,
     pub keys: Vec<String>,
     pub hud: Vec<String>,
+    pub gate: Vec<String>,
     pub update: Vec<String>,
     pub land: Vec<String>,
     pub collide: Vec<String>,
@@ -68,6 +69,7 @@ impl<'a> Gen<'a> {
             init: Vec::new(),
             keys: Vec::new(),
             hud: Vec::new(),
+            gate: Vec::new(),
             update: Vec::new(),
             land: Vec::new(),
             collide: Vec::new(),
@@ -207,6 +209,7 @@ impl<'a> Gen<'a> {
         match e.section {
             Section::Init => self.init.extend(lines),
             Section::Keys => self.keys.extend(lines),
+            Section::Gate => self.gate.extend(lines),
             Section::Update | Section::Inline => self.update.extend(lines),
             Section::Land => self.land.extend(lines),
             Section::Collide => self.collide.extend(lines),
@@ -231,7 +234,7 @@ pub struct GenOptions {
 }
 
 /// Does `word` appear as a whole identifier in `lines`?
-fn uses_ident(lines: &[String], word: &str) -> bool {
+pub fn uses_ident(lines: &[String], word: &str) -> bool {
     lines.iter().any(|l| {
         let b = l.as_bytes();
         let mut i = 0;
@@ -423,6 +426,7 @@ fn render(g: &Gen, name: &str) -> String {
     update.extend(g.hud.iter().cloned());
     if !playing.is_empty() {
         update.extend(block("if self.status != Status::Playing", vec!["return;".into()]));
+        update.extend(g.gate.iter().cloned());
         update.extend(playing);
     }
     if !update.is_empty() {

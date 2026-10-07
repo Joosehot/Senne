@@ -1,6 +1,8 @@
+The player chooses easy, normal or hard at the start with 1, 2 and 3, or normal with space or after 6 seconds.
+The harder the game, the stronger the fish pull, the less they bite, the louder the shout must be, the sooner they get away and the shorter the time.
 At the start, show "SCORE {score} / 50" at the top left in "#16324f", show "TIME {countdown 90}" at the top right in "#16324f", show "JIG: UP / W" in the middle for 6 seconds and show the shout meter at the bottom.
 The hook hangs by its eye on a line from the rod tip down through the hole, sinking at 1.5 units per second down to -8.3.
-The player jigs the hook with the up arrow, w or space, lifting it 0.8 units, and it flutters back down.
+The player jigs the hook with the up arrow or w, lifting it 0.8 units, and it flutters back down.
 The hook rises while the player shouts or holds space, at up to 8 units per second as loud as the shout.
 Animate each hook with "hook_jig_1", "hook_jig_2", "hook_jig_3", "hook_jig_4", "hook_jig_5", "hook_jig_6", "hook_jig_7" and "hook_jig_8" at 12 frames per second while it is jigged.
 Each perch swims in a school within 15 units at 2 units per second, darting, keeping its depth within 1.5 units and nosing toward the hook within 4 units.
@@ -16,7 +18,7 @@ Animate each pike with "pike_struggle_1", "pike_struggle_2", "pike_struggle_3", 
 Each hooked perch follows its hook, fighting and pulling it down at 2 units per second in bursts.
 Each hooked roach follows its hook, fighting and pulling it down at 1.5 units per second in bursts.
 Each hooked pike follows its hook, fighting and pulling it down at 5 units per second in bursts.
-When a jigged hook touches a fish and no fish is hooked, the fish bites, squash it, play the hit sound and show "FISH ON! SHOUT!" in the middle for 1.5 seconds.
+When the hook is jigged within 2 units of a fish and no fish is hooked, the fish bites with a chance of 40 percent for a perch, 20 percent for a roach, 5 percent for a pike and 60 percent for a lunging pike, more for a steady rhythm, less for frantic jigging and less the farther it is, squash it, play the hit sound and show "FISH ON! SHOUT!" in the middle for 1.5 seconds.
 When a hooked perch reaches the hole, add 10 points, destroy it, play the splash sound, show "PERCH +10" in the middle for 1.5 seconds and a new perch comes in from the side after 3 seconds.
 When a hooked roach reaches the hole, add 5 points, destroy it, play the splash sound, show "ROACH +5" in the middle for 1.5 seconds and a new roach comes in from the side after 2 seconds.
 When a hooked pike reaches the hole, add 30 points, destroy it, play the splash sound, show "PIKE +30" in the middle for 1.5 seconds and a new pike comes in from the side after 6 seconds.

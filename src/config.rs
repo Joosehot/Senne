@@ -175,11 +175,22 @@ pub struct GameTuning {
     pub bottom_margin: f32,
     /// "it gets away": it won't bite again for this long (seconds).
     pub shy_secs: f32,
-    /// "the shout meter": bar cells, label, colour at or above the shout threshold and below it.
-    pub meter_width: i64,
+    /// "the shout meter": a wide bar of `meter_size` (screen fractions, width and height) with a
+    /// `meter_border` frame, `meter_label` above it at `meter_label_size` pixels; its fill goes
+    /// from `meter_low` through `meter_mid` (at the shout threshold) to `meter_high` at full
+    /// voice, a `meter_mark` line marks the threshold, and while a fish is on the frame and the
+    /// label pulse `meter_pulse` times a second.
     pub meter_label: String,
-    pub meter_on: [f32; 3],
-    pub meter_off: [f32; 3],
+    pub meter_size: [f32; 2],
+    pub meter_border: f32,
+    pub meter_label_size: f32,
+    pub meter_back: [f32; 3],
+    pub meter_frame: [f32; 3],
+    pub meter_low: [f32; 3],
+    pub meter_mid: [f32; 3],
+    pub meter_high: [f32; 3],
+    pub meter_mark: [f32; 3],
+    pub meter_pulse: f32,
     /// "show ... for N seconds": text size of such messages (pixels).
     pub flash_size: f32,
     /// "swims ...": each fish runs its own clock, (1 +- jitter/2) as fast as the game's, from a
@@ -236,6 +247,33 @@ pub struct GameTuning {
     pub flutter_rate: f32,
     /// "drawn to a jigged hook": a fish slows down within this distance of it (units).
     pub draw_ease: f32,
+    /// "jigs ...": without a "sinking" sentence the hook settles back to its resting depth over
+    /// this long (seconds).
+    pub jig_settle_secs: f32,
+    /// "bites with a chance ...": "more for a steady rhythm" multiplies the chance by
+    /// `bite_steady` when the jig came `rhythm_min`..`rhythm_max` seconds after the last one and
+    /// within `rhythm_slack` seconds of the gap before; "less for frantic jigging" multiplies it by
+    /// `bite_frantic` when it came sooner than `frantic_secs`.
+    pub bite_steady: f32,
+    pub bite_frantic: f32,
+    pub rhythm_min: f32,
+    pub rhythm_max: f32,
+    pub rhythm_slack: f32,
+    pub frantic_secs: f32,
+    /// "The player chooses ...": the prompt's place (screen fractions) and size (pixels).
+    pub choose_at: [f32; 2],
+    pub choose_size: f32,
+    /// "The harder the game, ...": per level (easy, normal, hard), what the sentence's number
+    /// is multiplied by: the pull and the burst of a hooked thing ("the stronger the fish
+    /// pull"), the bite chance ("the less they bite"), the shout threshold ("the louder the
+    /// shout must be"), the time at the bottom before a catch gets away ("the sooner they get
+    /// away") and the time ("the shorter the time").
+    pub level_pull: [f32; 3],
+    pub level_burst: [f32; 3],
+    pub level_bite: [f32; 3],
+    pub level_shout: [f32; 3],
+    pub level_escape: [f32; 3],
+    pub level_time: [f32; 3],
 }
 
 impl Config {
@@ -364,6 +402,14 @@ impl Config {
             ("flutter_sway", t.flutter_sway),
             ("flutter_rate", t.flutter_rate),
             ("draw_ease", t.draw_ease),
+            ("jig_settle_secs", t.jig_settle_secs),
+            ("bite_steady", t.bite_steady),
+            ("bite_frantic", t.bite_frantic),
+            ("rhythm_max", t.rhythm_max),
+            ("frantic_secs", t.frantic_secs),
+            ("choose_size", t.choose_size),
+            ("meter_label_size", t.meter_label_size),
+            ("meter_pulse", t.meter_pulse),
         ];
         for (k, v) in positive {
             if !(v > 0.0) {
@@ -381,6 +427,9 @@ impl Config {
             ("school_pull", t.school_pull),
             ("school_push", t.school_push),
             ("lunge_rest", t.lunge_rest),
+            ("rhythm_min", t.rhythm_min),
+            ("rhythm_slack", t.rhythm_slack),
+            ("meter_border", t.meter_border),
         ];
         for (k, v) in non_negative {
             if !(v >= 0.0) {
@@ -402,6 +451,30 @@ impl Config {
                 bail!("rules.toml: game.tuning.{k} must be in 0..1 (got {v})");
             }
         }
+        if t.rhythm_min >= t.rhythm_max {
+            bail!("rules.toml: game.tuning.rhythm_min must be less than rhythm_max");
+        }
+        for (k, table) in [
+            ("level_pull", t.level_pull),
+            ("level_burst", t.level_burst),
+            ("level_bite", t.level_bite),
+            ("level_shout", t.level_shout),
+            ("level_escape", t.level_escape),
+            ("level_time", t.level_time),
+        ] {
+            if !table.iter().all(|x| *x > 0.0) {
+                bail!("rules.toml: game.tuning.{k} must be > 0 for every level");
+            }
+        }
+        if t.level_burst.iter().any(|k| t.burst_secs * k >= t.burst_secs + t.rest_secs) {
+            bail!("rules.toml: game.tuning.level_burst must keep a burst shorter than burst_secs + rest_secs");
+        }
+        if t.level_shout.iter().any(|k| t.shout_threshold * k >= 1.0) {
+            bail!("rules.toml: game.tuning.level_shout must keep the shout threshold under 1");
+        }
+        if !(t.meter_size.iter().all(|x| *x > 0.0 && *x <= 1.0)) {
+            bail!("rules.toml: game.tuning.meter_size must be screen fractions in 0..1");
+        }
         if t.jig_lift_secs >= t.jig_secs {
             bail!("rules.toml: game.tuning.jig_lift_secs must be shorter than jig_secs");
         }
@@ -421,6 +494,7 @@ impl Config {
             ("middle", t.middle),
             ("bottom", t.bottom),
             ("banner", t.banner),
+            ("choose_at", t.choose_at),
         ] {
             if !p.iter().all(|x| (0.0..=1.0).contains(x)) {
                 bail!("rules.toml: game.tuning.{k} must be screen fractions in 0..1");

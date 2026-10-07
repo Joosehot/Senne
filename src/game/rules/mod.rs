@@ -10,7 +10,7 @@
 //! none of its own.
 
 use super::codegen::Gen;
-use super::parser::{Action, Body, GameProgram, Mode, Standing, Target, Trigger};
+use super::parser::{Action, Body, GameProgram, Harder, Mode, Standing, Target, Trigger};
 use crate::config::JudgeConfig;
 use std::collections::BTreeSet;
 
@@ -19,6 +19,7 @@ pub mod at_bottom;
 pub mod back_to_start;
 pub mod bite;
 pub mod bounce;
+pub mod choose;
 pub mod chase;
 pub mod come_back;
 pub mod drawn;
@@ -30,10 +31,12 @@ pub mod falls_below;
 pub mod fly;
 pub mod get_away;
 pub mod hang;
+pub mod harder;
 pub mod hit;
 pub mod hooked;
 pub mod hurt;
 pub mod jig;
+pub mod jig_near;
 pub mod judges;
 pub mod jump;
 pub mod key_press;
@@ -79,6 +82,9 @@ pub enum Section {
     Init,
     /// `update`, before the "still playing?" check (key triggers).
     Keys,
+    /// `update`, after the HUD and before the "still playing?" check: a gate that may hold the
+    /// game (choosing a level).
+    Gate,
     /// `update`, while playing.
     Update,
     /// `on_collision`, before the touches ("lands on" excludes them).
@@ -175,6 +181,13 @@ pub fn site(t: &Trigger) -> At {
             in_loop: true,
             last: false,
         },
+        Trigger::Jigged { a, b, .. } => At {
+            place: Place::Update,
+            it: Some("n.as_str()".into()),
+            named: vec![(a.clone(), "h.as_str()".into()), (b.clone(), "n.as_str()".into())],
+            in_loop: true,
+            last: false,
+        },
         Trigger::ThingBelow(thing, _) => At {
             place: Place::Update,
             it: Some("&n".into()),
@@ -209,6 +222,10 @@ pub struct Facts {
     /// Kinds with an "Animate each X ... while it is hooked." sentence: their other
     /// animations skip the hooked ones.
     pub hooked_anim: BTreeSet<String>,
+    /// "The player chooses easy, normal or hard ...": the game has a level (`self.level`).
+    pub levels: bool,
+    /// "The harder the game, ...": what the level scales.
+    pub harder: Harder,
 }
 
 impl Facts {
@@ -228,6 +245,8 @@ impl Facts {
                 Body::Standing(Standing::Hang { sink: Some((_, depth)), .. }) => {
                     f.hook_depth.get_or_insert(*depth);
                 }
+                Body::Standing(Standing::Choose { .. }) => f.levels = true,
+                Body::Standing(Standing::Harder(h)) => f.harder = *h,
                 Body::Standing(_) => {}
                 Body::Event { trigger, actions } => {
                     if matches!(trigger, Trigger::Landed { .. } | Trigger::AtBottom { .. }) {
@@ -244,7 +263,7 @@ impl Facts {
                                 f.respawned.insert(k.clone());
                             }
                             Action::LoseLife { .. } => f.hurts = true,
-                            Action::Bite(_) => f.hooks = true,
+                            Action::Bite(..) => f.hooks = true,
                             Action::GetAway(_) => f.shy = true,
                             _ => {}
                         }
@@ -390,6 +409,8 @@ pub fn registry() -> Vec<&'static dyn GamePattern> {
         &hooked::Hooked,
         &jig::Jig,
         &drawn::Drawn,
+        &choose::Choose,
+        &harder::HarderGame,
         // triggers
         &start::Start,
         &every_frame::EveryFrame,
@@ -402,6 +423,7 @@ pub fn registry() -> Vec<&'static dyn GamePattern> {
         &falls_below::FallsBelow,
         &landed::Landed,
         &at_bottom::AtBottom,
+        &jig_near::JigNear,
         &key_press::KeyPress,
         // actions
         &destroy::Destroy,
@@ -527,6 +549,42 @@ pub fn is_jigged(g: &mut Gen, n: &str) -> String {
     let map = jigged_map(g);
     let clock = g.clock();
     format!("{map}.get({n}).is_some_and(|t| {clock} - *t < {})", f(g.t.jig_secs))
+}
+
+/// Each swimmer of a kind's own state (`swim.rs`): (home depth, heading, speed, last beat,
+/// lunge time left, next lunge). One per kind, so a bite can see whether it is lunging.
+pub fn swim_map(g: &mut Gen, kind: &str) -> String {
+    g.field(&format!("swim_{kind}"), "BTreeMap<String, (f32, f32, f32, f32, f32, f32)>", "BTreeMap::new()")
+}
+
+/// The game's level (0 easy, 1 normal, 2 hard; normal until the player chooses).
+pub fn level(g: &mut Gen) -> String {
+    g.field("level", "usize", "1")
+}
+
+/// `x` scaled by the chosen level: `[x * table[0], x * table[1], x * table[2]][self.level]`
+/// (each rounded to 1/1000, so 90 s x 4/3 reads 120.0).
+pub fn leveled(g: &mut Gen, x: f32, table: [f32; 3]) -> String {
+    let lv = level(g);
+    let v: Vec<String> = table.iter().map(|k| f((x * k * 1000.0).round() / 1000.0)).collect();
+    format!("[{}][{lv}]", v.join(", "))
+}
+
+/// `x`, or scaled by the level when the game has levels and `scaled` (what "the harder the
+/// game" says it changes).
+pub fn maybe_leveled(g: &mut Gen, x: f32, scaled: bool, table: [f32; 3]) -> String {
+    if scaled && g.facts.levels {
+        leveled(g, x, table)
+    } else {
+        f(x)
+    }
+}
+
+/// The loudness that counts as a shout, as an expression (louder on harder levels when "the
+/// louder the shout must be").
+pub fn shout_threshold(g: &mut Gen) -> String {
+    let (th, table, on) = (g.t.shout_threshold, g.t.level_shout, g.facts.harder.shout);
+    maybe_leveled(g, th, on, table)
 }
 
 /// Lines that bind `top` to the position of the first `anchor` and run `body`

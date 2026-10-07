@@ -236,10 +236,17 @@ line_depth = -0.1           # the line is drawn behind the hook (z)
 hooked_drop = 0.7           # a hooked thing hangs this far below its hook (u)
 land_margin = 0.3           # "a hooked X reaches the Y": within this height of it (u)
 side_x = 18.0               # "comes in from the side": appears this far left or right (u), past the screen edge
-meter_width = 20            # "the shout meter": bar cells
-meter_label = "SHOUT"
-meter_on = [0.45, 1.0, 0.45]  # meter colour while it counts as a shout
-meter_off = [0.7, 0.75, 0.8]
+meter_label = "SHOUT!"      # "the shout meter": the label above the bar
+meter_size = [0.34, 0.06]   # ... the bar: a third of the screen wide (screen fractions)
+meter_border = 0.006        # ... its frame (screen fraction)
+meter_label_size = 34.0     # ... the label (px)
+meter_back = [0.05, 0.09, 0.15]  # ... behind the fill
+meter_frame = [0.85, 0.92, 1.0]
+meter_low = [0.3, 0.9, 0.35]     # ... the fill: green when quiet ...
+meter_mid = [1.0, 0.85, 0.2]     # ... yellow at the shout threshold ...
+meter_high = [1.0, 0.3, 0.25]    # ... red at full voice
+meter_mark = [1.0, 1.0, 1.0]     # ... a line where a shout starts to count
+meter_pulse = 2.5           # ... the frame and label pulse this many times a second while a fish is on
 line_spring = 6.0           # a hook pulled sideways springs back under the hole (1/s)
 burst_secs = 0.9            # "in bursts": pull this long ...
 rest_secs = 0.7             # ... then rest this long (s): a shout in the rest gains ground
@@ -283,6 +290,21 @@ jig_secs = 2.5              # ... and the hook counts as jigged this long after 
 flutter_sway = 0.12         # "it flutters back down": sways this far to each side (u) ...
 flutter_rate = 2.2          # ... this many times a second, fading over the jigged time
 draw_ease = 1.0             # "drawn to a jigged hook": a fish slows down within this of it (u)
+jig_settle_secs = 0.5       # "jigs ...": with nothing sinking it, the hook settles back to its resting depth this fast (s)
+bite_steady = 1.6           # "bites with a chance ... more for a steady rhythm": x this ...
+rhythm_min = 0.35           # ... when the jig comes this many seconds after the last one or more ...
+rhythm_max = 1.2            # ... but no more than this ...
+rhythm_slack = 0.25         # ... and within this of the gap before (s)
+bite_frantic = 0.15         # "less for frantic jigging": x this ...
+frantic_secs = 0.3          # ... when the jig comes sooner than this after the last one (s)
+choose_at = [0.27, 0.3]     # "The player chooses easy, normal or hard ...": the prompt (screen fractions) ...
+choose_size = 40.0          # ... and its size (px)
+level_pull = [0.6, 1.0, 1.35]    # "the harder the game": easy, normal, hard x the pull ("the stronger the fish pull") ...
+level_burst = [0.75, 1.0, 1.25]  # ... x the burst_secs of the pull ...
+level_bite = [1.4, 1.0, 0.7]     # ... x the bite chance ("the less they bite") ...
+level_shout = [0.6, 1.0, 1.4]    # ... x the shout_threshold ("the louder the shout must be") ...
+level_escape = [1.6, 1.0, 0.65]  # ... x the time at the bottom before it gets away ("the sooner they get away") ...
+level_time = [1.33333, 1.0, 0.77778]  # ... x the time ("the shorter the time"): 90 s -> 120, 90, 70
 
 # ---- Game judges ---------------------------------------------------------------
 
@@ -328,6 +350,14 @@ variants.sine = { safety = 0.6, brevity = 0.9, perf = 0.8 }          # no state,
 weight = 1.0
 variants.twitch = { safety = 0.8, brevity = 0.6, perf = 0.8 }       # the lift is a quick rise over a few frames
 variants.snap = { safety = 0.6, brevity = 0.9, perf = 0.9 }         # the hook jumps up on the press
+
+[game.rules.choose]
+weight = 1.0
+variants.prompt = { safety = 0.8, brevity = 0.8, perf = 0.8 }       # hold the game with a prompt until a key picks the level
+
+[game.rules.harder]
+weight = 1.0
+variants.tables = { safety = 0.8, brevity = 0.8, perf = 0.8 }       # the patterns it names scale their numbers by level_* tables
 
 [game.rules.drawn]
 weight = 1.0
@@ -426,6 +456,10 @@ variants.scan = { safety = 0.8, brevity = 0.8, perf = 0.8 }
 weight = 1.0
 variants.timer = { safety = 0.8, brevity = 0.8, perf = 0.8 }
 
+[game.rules.jig_near]
+weight = 1.0
+variants.each_jig = { safety = 0.8, brevity = 0.8, perf = 0.8 }     # once per jig, every one near the jigged thing
+
 [game.rules.key_press]
 weight = 1.0
 variants.pressed = { safety = 0.8, brevity = 0.8, perf = 0.8 }
@@ -515,5 +549,4 @@ variants.queue = { safety = 0.8, brevity = 0.8, perf = 0.8 }
 
 [game.rules.meter]
 weight = 1.0
-variants.every_frame = { safety = 0.8, brevity = 0.9, perf = 0.5 }  # rewrite the bar each frame
-variants.on_change = { safety = 0.8, brevity = 0.5, perf = 0.9 }    # only when its length changes
+variants.bar = { safety = 0.8, brevity = 0.8, perf = 0.8 }          # a wide filled bar with a threshold mark and a label

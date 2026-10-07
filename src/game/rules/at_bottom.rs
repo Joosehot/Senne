@@ -3,9 +3,10 @@
 //! bottom_margin` of the lowest point hooks sink to ("sinking ... down to D")
 //! counts the time it has been there; once it reaches the given seconds the
 //! count starts over and the actions run with "it" = the perch. A weak shout
-//! lets the fish drag the hook down, so this is where it gets away.
+//! lets the fish drag the hook down, so this is where it gets away. "The harder the game, the
+//! sooner they get away" scales the seconds by `level_escape`.
 
-use super::{block, f, hooked_map, s, At, Emitted, GamePattern, Node, Section};
+use super::{block, f, hooked_map, maybe_leveled, s, At, Emitted, GamePattern, Node, Section};
 use crate::game::codegen::Gen;
 use crate::game::parser::Trigger;
 
@@ -32,7 +33,9 @@ impl GamePattern for AtBottom {
         inner.push(format!("{held}.insert(n.clone(), held);"));
         let mut fire = vec![format!("{held}.remove(&n);")];
         fire.extend(body);
-        inner.extend(block(format!("if held >= {}", f(*secs)), fire));
+        let (on, table) = (g.facts.harder.escape, g.t.level_escape);
+        let secs = maybe_leveled(g, *secs, on, table);
+        inner.extend(block(format!("if held >= {secs}"), fire));
         Emitted::to(Section::Update, block(format!("for (n, hook) in {map}.clone()"), inner))
     }
 }

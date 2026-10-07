@@ -7,17 +7,22 @@ use std::collections::BTreeMap;
 
 struct DroidGame {
     status: Status,
+    level: usize,
+    choosing: bool,
+    choose_secs: f32,
     score: i64,
     clock: f32,
     flash_middle: f32,
+    hooked: BTreeMap<String, String>,
     line_hook: BTreeMap<String, String>,
     jigged: BTreeMap<String, f32>,
-    hooked: BTreeMap<String, String>,
+    rest_hook: BTreeMap<String, f32>,
     swim_perch: BTreeMap<String, (f32, f32, f32, f32, f32, f32)>,
     swim_roach: BTreeMap<String, (f32, f32, f32, f32, f32, f32)>,
     swim_pike: BTreeMap<String, (f32, f32, f32, f32, f32, f32)>,
     shy: BTreeMap<String, f32>,
     hooked_at: BTreeMap<String, f32>,
+    beat_hook: BTreeMap<String, (f32, f32)>,
     comebacks: Vec<(f32, String, bool)>,
     bottom_fish: BTreeMap<String, f32>,
     score_50: bool,
@@ -28,17 +33,22 @@ impl Default for DroidGame {
     fn default() -> Self {
         DroidGame {
             status: Status::Playing,
+            level: 1,
+            choosing: true,
+            choose_secs: 0.0,
             score: 0,
             clock: 0.0,
             flash_middle: 0.0,
+            hooked: BTreeMap::new(),
             line_hook: BTreeMap::new(),
             jigged: BTreeMap::new(),
-            hooked: BTreeMap::new(),
+            rest_hook: BTreeMap::new(),
             swim_perch: BTreeMap::new(),
             swim_roach: BTreeMap::new(),
             swim_pike: BTreeMap::new(),
             shy: BTreeMap::new(),
             hooked_at: BTreeMap::new(),
+            beat_hook: BTreeMap::new(),
             comebacks: Vec::new(),
             bottom_fish: BTreeMap::new(),
             score_50: false,
@@ -54,7 +64,7 @@ impl Game for DroidGame {
         cx.text_at("text_0", &format!("SCORE {} / 50", self.score), 0.02, 0.03, 24.0);
         cx.text_color("text_0", vec3(0.086, 0.196, 0.31));
         // show "TIME {countdown 90}" at the top right in "#16324f" [show/every_frame]
-        cx.text_at("text_1", &format!("TIME {}", (90.0 - self.clock).max(0.0).ceil() as i64), 0.78, 0.03, 24.0);
+        cx.text_at("text_1", &format!("TIME {}", ([120.0, 90.0, 70.0][self.level] - self.clock).max(0.0).ceil() as i64), 0.78, 0.03, 24.0);
         cx.text_color("text_1", vec3(0.086, 0.196, 0.31));
         // show "JIG: UP / W" in the middle for 6 seconds [show/once]
         cx.text_at("flash_middle", "JIG: UP / W", 0.36, 0.45, 36.0);
@@ -71,14 +81,41 @@ impl Game for DroidGame {
         // "At the start, show "SCORE {score} / 50" at the top left in "#16324f", show "TIME {countdown 90}" at the top right in "#16324f", show "JIG: UP / W" in the middle for 6 seconds and show the shout meter at the bottom." [show/every_frame]
         cx.text_at("text_0", &format!("SCORE {} / 50", self.score), 0.02, 0.03, 24.0);
         // "At the start, show "SCORE {score} / 50" at the top left in "#16324f", show "TIME {countdown 90}" at the top right in "#16324f", show "JIG: UP / W" in the middle for 6 seconds and show the shout meter at the bottom." [show/every_frame]
-        cx.text_at("text_1", &format!("TIME {}", (90.0 - self.clock).max(0.0).ceil() as i64), 0.78, 0.03, 24.0);
-        // "At the start, show "SCORE {score} / 50" at the top left in "#16324f", show "TIME {countdown 90}" at the top right in "#16324f", show "JIG: UP / W" in the middle for 6 seconds and show the shout meter at the bottom." [meter/every_frame]
+        cx.text_at("text_1", &format!("TIME {}", ([120.0, 90.0, 70.0][self.level] - self.clock).max(0.0).ceil() as i64), 0.78, 0.03, 24.0);
+        // "At the start, show "SCORE {score} / 50" at the top left in "#16324f", show "TIME {countdown 90}" at the top right in "#16324f", show "JIG: UP / W" in the middle for 6 seconds and show the shout meter at the bottom." [meter/bar]
         let shout = cx.voice();
-        let bars = ((shout * 20.0).round() as usize).min(20);
-        cx.text_at("text_2", &format!("SHOUT {}{}", "#".repeat(bars), "-".repeat(20 - bars)), 0.4, 0.92, 24.0);
-        cx.text_color("text_2", if shout >= 0.25 { vec3(0.45, 1.0, 0.45) } else { vec3(0.7, 0.75, 0.8) });
+        let th = [0.15, 0.25, 0.35][self.level];
+        let fill = shout.clamp(0.0, 1.0);
+        // green when quiet, yellow where a shout starts to count, red at full voice
+        let color = if fill < th { vec3(0.3, 0.9, 0.35) + (vec3(1.0, 0.85, 0.2) - vec3(0.3, 0.9, 0.35)) * (fill / th) } else { vec3(1.0, 0.85, 0.2) + (vec3(1.0, 0.3, 0.25) - vec3(1.0, 0.85, 0.2)) * ((fill - th) / (1.0 - th)) };
+        // it pulses while a fish is on
+        let pulse = if self.hooked.is_empty() { 0.0 } else { 0.5 + 0.5 * (cx.time() * 15.707964).sin() };
+        let frame = vec3(0.85, 0.92, 1.0) + (vec3(1.0, 0.3, 0.25) - vec3(0.85, 0.92, 1.0)) * pulse;
+        cx.rect_at("text_2_frame", 0.324, 0.854, 0.352, 0.072, frame);
+        cx.rect_at("text_2_back", 0.33, 0.86, 0.34, 0.06, vec3(0.05, 0.09, 0.15));
+        cx.rect_at("text_2_fill", 0.33, 0.86, 0.34 * fill, 0.06, color);
+        cx.rect_at("text_2_mark", 0.327 + 0.34 * th, 0.854, 0.006, 0.072, vec3(1.0, 1.0, 1.0));
+        cx.text_at("text_2", "SHOUT!", 0.33, 0.8, 34.0);
+        cx.text_color("text_2", frame);
         if self.status != Status::Playing {
             return;
+        }
+        // "The player chooses easy, normal or hard at the start with 1, 2 and 3, or normal with space or after 6 seconds." [choose/prompt]
+        // the game waits until the player picks a level
+        if self.choosing {
+            self.choose_secs += dt;
+            let pick = if cx.key_pressed("1") { Some(0) } else if cx.key_pressed("2") { Some(1) } else if cx.key_pressed("3") { Some(2) } else if cx.key_pressed("space") { Some(1) } else if self.choose_secs >= 6.0 { Some(1) } else { None };
+            match pick {
+                Some(l) => {
+                    self.level = l;
+                    self.choosing = false;
+                    cx.remove_text("choose");
+                }
+                None => {
+                    cx.text_at("choose", "1 EASY  2 NORMAL  3 HARD", 0.27, 0.3, 40.0);
+                    return;
+                }
+            }
         }
         self.clock += dt;
         // the message at the middle goes when its time is up
@@ -104,12 +141,20 @@ impl Game for DroidGame {
                 cx.move_by(&n, vec2(0.0, -1.5 * dt));
             }
         }
-        // "The player jigs the hook with the up arrow, w or space, lifting it 0.8 units, and it flutters back down." [jig/snap]
-        let jig = cx.key_pressed("up") || cx.key_pressed("w") || cx.key_pressed("space");
+        // "The player jigs the hook with the up arrow or w, lifting it 0.8 units, and it flutters back down." [jig/snap]
+        let jig = cx.key_pressed("up") || cx.key_pressed("w");
         for n in cx.find_tag("hook") {
-            if jig {
+            let y = cx.pos(&n).y;
+            // where it rests: the lowest it has been since the jigging began
+            let rest = match self.rest_hook.get(&n) {
+                Some(r) if self.jigged.get(&n).is_some_and(|t| self.clock - *t < 2.5) => r.min(y),
+                _ => y,
+            };
+            self.rest_hook.insert(n.clone(), rest);
+            if jig && y - rest < 0.8 && !self.hooked.values().any(|h| *h == n) {
                 self.jigged.insert(n.clone(), self.clock);
-                cx.move_by(&n, vec2(0.0, 0.8));
+                // up to the top of the band, no higher
+                cx.move_by(&n, vec2(0.0, rest + 0.8 - y));
             }
             if let Some(t0) = self.jigged.get(&n).copied() {
                 let t = self.clock - t0;
@@ -122,7 +167,7 @@ impl Game for DroidGame {
         }
         // "The hook rises while the player shouts or holds space, at up to 8 units per second as loud as the shout." [rise/linear]
         let shout = cx.voice();
-        let lift = if shout >= 0.25 { shout * 8.0 } else { 0.0 };
+        let lift = if shout >= [0.15, 0.25, 0.35][self.level] { shout * 8.0 } else { 0.0 };
         let lift = if cx.key("space") { 8.0 } else { lift };
         if lift > 0.0 {
             for n in cx.find_tag("hook") {
@@ -331,9 +376,9 @@ impl Game for DroidGame {
                 continue;
             }
             let t = self.clock - self.hooked_at.get(&fish).copied().unwrap_or(self.clock);
-            let surge = t % 1.6 < 0.9;
+            let surge = t % 1.6 < [0.675, 0.9, 1.125][self.level];
             if surge {
-                cx.move_by(&hook, vec2(0.0, -2.0 * dt));
+                cx.move_by(&hook, vec2(0.0, -[1.2, 2.0, 2.7][self.level] * dt));
             }
             let wild = if surge { 1.0 } else { 0.3 };
             let phase = t * 15.707964;
@@ -351,9 +396,9 @@ impl Game for DroidGame {
                 continue;
             }
             let t = self.clock - self.hooked_at.get(&fish).copied().unwrap_or(self.clock);
-            let surge = t % 1.6 < 0.9;
+            let surge = t % 1.6 < [0.675, 0.9, 1.125][self.level];
             if surge {
-                cx.move_by(&hook, vec2(0.0, -1.5 * dt));
+                cx.move_by(&hook, vec2(0.0, -[0.9, 1.5, 2.025][self.level] * dt));
             }
             let wild = if surge { 1.0 } else { 0.3 };
             let phase = t * 15.707964;
@@ -371,9 +416,9 @@ impl Game for DroidGame {
                 continue;
             }
             let t = self.clock - self.hooked_at.get(&fish).copied().unwrap_or(self.clock);
-            let surge = t % 1.6 < 0.9;
+            let surge = t % 1.6 < [0.675, 0.9, 1.125][self.level];
             if surge {
-                cx.move_by(&hook, vec2(0.0, -5.0 * dt));
+                cx.move_by(&hook, vec2(0.0, -[3.0, 5.0, 6.75][self.level] * dt));
             }
             let wild = if surge { 1.0 } else { 0.3 };
             let phase = t * 15.707964;
@@ -384,6 +429,54 @@ impl Game for DroidGame {
             cx.set_pos(&fish, at);
             cx.set_flip_x(&fish, phase.cos() < 0.0);
             cx.set_vel(&fish, Vec3::ZERO);
+        }
+        // "When the hook is jigged within 2 units of a fish and no fish is hooked, the fish bites with a chance of 40 percent for a perch, 20 percent for a roach, 5 percent for a pike and 60 percent for a lunging pike, more for a steady rhythm, less for frantic jigging and less the farther it is, squash it, play the hit sound and show "FISH ON! SHOUT!" in the middle for 1.5 seconds." [jig_near/each_jig]
+        for h in cx.find_tag("hook") {
+            if self.jigged.get(&h).copied() != Some(self.clock) {
+                continue;
+            }
+            let lure = cx.pos(&h);
+            // the rhythm: the time since the last jig, and the gap before that
+            let (last, before) = self.beat_hook.get(&h).copied().unwrap_or((f32::NEG_INFINITY, 0.0));
+            let gap = self.clock - last;
+            self.beat_hook.insert(h.clone(), (self.clock, gap));
+            let steady = (0.35..=1.2).contains(&gap) && (gap - before).abs() <= 0.25;
+            let frantic = gap < 0.3;
+            for n in cx.find_tag("fish") {
+                if self.hooked.keys().any(|k| cx.has_tag(k, "fish")) {
+                    break;
+                }
+                if self.hooked.contains_key(&n) {
+                    continue;
+                }
+                if self.shy.get(&n).is_some_and(|t| *t > self.clock) {
+                    continue;
+                }
+                let d = (cx.pos(&n) - lure).length();
+                if d >= 2.0 {
+                    continue;
+                }
+                let near = 1.0 - d / 2.0;
+                // the fish bites with a chance of 40 percent for a perch, 20 percent for a roach, 5 percent for a pike, 60 percent for a lunging pike, more for a steady rhythm, less for frantic jigging, less the farther it is [bite/map]
+                // it bites by chance, once per jig
+                let chance = if cx.has_tag(n.as_str(), "pike") && self.swim_pike.get(n.as_str()).is_some_and(|s| s.4 > 0.0) { 0.6 } else if cx.has_tag(n.as_str(), "perch") { 0.4 } else if cx.has_tag(n.as_str(), "roach") { 0.2 } else if cx.has_tag(n.as_str(), "pike") { 0.05 } else { 0.0 };
+                let chance = if steady { chance * 1.6 } else { chance };
+                let chance = if frantic { chance * 0.15 } else { chance };
+                let chance = chance * near;
+                let chance = chance * [1.4, 1.0, 0.7][self.level];
+                if cx.random(0.0, 1.0) >= chance {
+                    continue;
+                }
+                self.hooked.insert(n.as_str().to_string(), h.as_str().to_string());
+                self.hooked_at.insert(n.as_str().to_string(), self.clock);
+                // squash it [squash/tween]
+                cx.squash(n.as_str(), 0.3);
+                // play the hit sound [sound/effect]
+                cx.play_sound("hit");
+                // show "FISH ON! SHOUT!" in the middle for 1.5 seconds [show/once]
+                cx.text_at("flash_middle", "FISH ON! SHOUT!", 0.36, 0.45, 36.0);
+                self.flash_middle = self.clock + 1.5;
+            }
         }
         // "When a hooked perch reaches the hole, add 10 points, destroy it, play the splash sound, show "PERCH +10" in the middle for 1.5 seconds and a new perch comes in from the side after 3 seconds." [landed/scan]
         if let Some(top) = cx.find_tag("hole").first().map(|h| cx.pos(h)) {
@@ -450,7 +543,7 @@ impl Game for DroidGame {
             let down = cx.pos(&hook).y <= -8.1;
             let held = if down { self.bottom_fish.get(&n).copied().unwrap_or(0.0) + dt } else { 0.0 };
             self.bottom_fish.insert(n.clone(), held);
-            if held >= 3.0 {
+            if held >= [4.8, 3.0, 1.95][self.level] {
                 self.bottom_fish.remove(&n);
                 // it gets away [get_away/unhook]
                 self.hooked.remove(&n);
@@ -474,7 +567,7 @@ impl Game for DroidGame {
         }
         self.score_50 = reached;
         // "When the time reaches 90 seconds, the player loses "TIME UP"." [reaches/edge]
-        let reached = self.clock >= 90.0;
+        let reached = self.clock >= [120.0, 90.0, 70.0][self.level];
         if reached && !self.time_90_0 {
             // the player loses "TIME UP" [lose/inline]
             if self.status == Status::Playing {
@@ -507,25 +600,6 @@ impl Game for DroidGame {
                     cx.set_rotation(&line, vec3(0.0, 0.0, (x - top.x).atan2(top.y - y).to_degrees()));
                 }
             }
-        }
-    }
-
-    fn on_collision(&mut self, cx: &mut Ctx, a: &str, b: &str) {
-        if self.status != Status::Playing {
-            return;
-        }
-        // "When a jigged hook touches a fish and no fish is hooked, the fish bites, squash it, play the hit sound and show "FISH ON! SHOUT!" in the middle for 1.5 seconds." [hit/has_tag]
-        if cx.has_tag(a, "hook") && cx.has_tag(b, "fish") && self.jigged.get(a).is_some_and(|t| self.clock - *t < 2.5) && !self.hooked.keys().any(|n| cx.has_tag(n, "fish")) && self.shy.get(b).map_or(true, |t| *t <= self.clock) {
-            // the fish bites [bite/map]
-            self.hooked.insert(b.to_string(), a.to_string());
-            self.hooked_at.insert(b.to_string(), self.clock);
-            // squash it [squash/tween]
-            cx.squash(b, 0.3);
-            // play the hit sound [sound/effect]
-            cx.play_sound("hit");
-            // show "FISH ON! SHOUT!" in the middle for 1.5 seconds [show/once]
-            cx.text_at("flash_middle", "FISH ON! SHOUT!", 0.36, 0.45, 36.0);
-            self.flash_middle = self.clock + 1.5;
         }
     }
 

@@ -7,7 +7,7 @@
 //! and `on_change` (remember the last text, rewrite only when it changes).
 //! Anywhere else it is shown once, when the trigger fires (`once`).
 
-use super::{block, f, s, At, Emitted, Facts, GamePattern, Node};
+use super::{block, f, maybe_leveled, s, At, Emitted, Facts, GamePattern, Node};
 use crate::game::codegen::Gen;
 use crate::game::parser::{Action, Part};
 
@@ -28,7 +28,12 @@ fn text_expr(g: &mut Gen, parts: &[Part]) -> (String, String) {
             Part::Lives => g.field("lives", "i64", &g.t.lives.to_string()),
             Part::Wave => g.field("wave", "i64", "1"),
             Part::Time => format!("{} as i64", g.clock()),
-            Part::Countdown(n) => format!("({} - {}).max(0.0).ceil() as i64", f(*n), g.clock()),
+            Part::Countdown(n) => {
+                // "the harder the game, ... the shorter the time": N x level_time
+                let (on, table) = (g.facts.harder.time, g.t.level_time);
+                let from = maybe_leveled(g, *n, on, table);
+                format!("({from} - {}).max(0.0).ceil() as i64", g.clock())
+            }
             Part::Left(t) => format!("cx.count_tag({})", s(t)),
         };
         fmt.push_str("{}");

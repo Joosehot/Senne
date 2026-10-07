@@ -77,6 +77,52 @@ pub enum Standing {
     /// units", "nosing toward the hook within N units", "lunging at the hook within N units at
     /// N units per second". Without any of these the sentence is a [`Standing::Patrol`].
     Swim(Swim),
+    /// "The player chooses easy, normal or hard at the start with 1, 2 and 3[, or normal with
+    /// space or after 5 seconds]." The game waits (its clock stopped) until a key picks a level;
+    /// `default`: the level a key or a wait picks for the player (0 easy, 1 normal, 2 hard).
+    Choose { keys: [String; 3], default: Option<(usize, Option<String>, Option<f32>)> },
+    /// "The harder the game, the stronger the fish pull, the less they bite, the louder the
+    /// shout must be, the sooner they get away and the shorter the time." What the chosen
+    /// level scales; the numbers per level are `[game.tuning] level_*`.
+    Harder(Harder),
+}
+
+/// What a harder game changes (see [`Standing::Harder`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Harder {
+    /// "the stronger the fish pull": hooked things pull harder, in longer bursts.
+    pub pull: bool,
+    /// "the less they bite": the bite chance per jig.
+    pub bite: bool,
+    /// "the louder the shout must be": the loudness that counts as a shout.
+    pub shout: bool,
+    /// "the sooner they get away": the time at the bottom before a catch gets away.
+    pub escape: bool,
+    /// "the shorter the time": "when the time reaches N seconds" and "{countdown N}".
+    pub time: bool,
+}
+
+/// "with a chance of 40 percent for a perch, ..., more for a steady rhythm, less for frantic
+/// jigging and less the farther it is": a bite that happens by chance, once per jig.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Chance {
+    /// In the order written; the first that fits the fish counts.
+    pub odds: Vec<Odds>,
+    /// "more for a steady rhythm": jigs at an even beat raise the chance.
+    pub steady: bool,
+    /// "less for frantic jigging": jigs in quick succession lower it.
+    pub frantic: bool,
+    /// "less the farther it is": the chance falls from full at the lure to none at the edge.
+    pub farther: bool,
+}
+
+/// "40 percent for a perch" / "60 percent for a lunging pike" / "30 percent" (any fish).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Odds {
+    pub kind: Option<String>,
+    /// "a lunging pike": only while it lunges (its swim sentence says "lunging at").
+    pub lunging: bool,
+    pub percent: f32,
 }
 
 /// How a swimmer moves along: its speed over time.
@@ -139,6 +185,9 @@ pub enum Trigger {
     /// "a shot hits an alien", "a bomb hits the player", "a hook touches a fish and no fish is hooked";
     /// `jigged`: "a jigged hook ...": only while the first thing is jigged.
     Hit { a: String, b: Party, cond: Option<Cond>, jigged: bool },
+    /// "the hook is jigged within 2 units of a fish [and no fish is hooked]": once per jig, for
+    /// every `b` that near the jigged `a`.
+    Jigged { a: String, b: String, within: f32, cond: Option<Cond> },
     /// "a hooked perch reaches the hole": the hook it bit is at the hole's height.
     Landed { kind: String, place: String },
     /// "a hooked perch stays at the bottom for 3 seconds": its hook has been at its lowest that long.
@@ -165,6 +214,7 @@ impl Trigger {
                 Party::Thing(t) => Some(t),
                 Party::Player => Some(a),
             },
+            Trigger::Jigged { b, .. } => Some(b),
             _ => None,
         }
     }
@@ -178,6 +228,7 @@ impl Trigger {
                 }
                 v
             }
+            Trigger::Jigged { a, b, .. } => vec![a.as_str(), b.as_str()],
             other => other.it().into_iter().collect(),
         }
     }
@@ -238,8 +289,9 @@ pub enum Action {
     Restart,
     NextWave(String),
     RandomShot { kind: String, aim: Aim, speed: f32, sprite: String, sound: Option<String> },
-    /// "it bites" / "the fish bites": it is hooked on the trigger's other thing.
-    Bite(Target),
+    /// "it bites" / "the fish bites[ with a chance of ...]": it is hooked on the trigger's other
+    /// thing (by chance, once per jig, after "when the hook is jigged near a fish").
+    Bite(Target, Option<Chance>),
     /// "it gets away": a hooked thing is let go and won't bite again for a while.
     GetAway(Target),
     /// "a new perch comes back / comes in from the side after N seconds": its scene entity again.
@@ -330,6 +382,9 @@ impl<'a> Cur<'a> {
         } else {
             None
         }
+    }
+    fn is_num(&self) -> bool {
+        matches!(self.t.get(self.i), Some(Tok::Num(..)))
     }
     fn quote(&mut self) -> Option<String> {
         if let Some(Tok::Quote(q)) = self.t.get(self.i) {
@@ -542,6 +597,12 @@ fn standing(c: &mut Cur) -> R<Option<Standing>> {
     if c.eat_all("the player jigs") {
         return jig(c).map(Some);
     }
+    if c.eat_all("the player chooses") {
+        return choose(c).map(Some);
+    }
+    if c.eat_all("the harder the game") {
+        return harder(c).map(Some);
+    }
     // "Fish are drawn to a jigged hook ..." / "Each fish is drawn to ..."
     if let Some(kind) = c.attempt(|c| {
         let each = c.eat("each");
@@ -742,6 +803,124 @@ fn jig(c: &mut Cur) -> R<Standing> {
     let keys = need(keys, "the keys (\"with the up arrow or w\")", c)?;
     let lift = need(lift, "how far (\"lifting it 0.8 units\")", c)?;
     Ok(Standing::Jig { kind, keys, lift, flutter })
+}
+
+/// The levels a game can be chosen at, easiest first.
+pub const LEVELS: [&str; 3] = ["easy", "normal", "hard"];
+
+fn level_word(c: &mut Cur) -> Option<usize> {
+    let i = LEVELS.iter().position(|l| c.is(l))?;
+    c.i += 1;
+    Some(i)
+}
+
+/// A key that picks a level: a digit ("1") or a named key or letter.
+fn choice_key(c: &mut Cur) -> Option<String> {
+    if let Some(Tok::Num(n, text)) = c.t.get(c.i) {
+        if n.fract() == 0.0 && (0.0..=9.0).contains(n) && text.len() == 1 {
+            c.i += 1;
+            return Some(text.clone());
+        }
+        return None;
+    }
+    c.key()
+}
+
+fn choose(c: &mut Cur) -> R<Standing> {
+    let hint = "\"The player chooses easy, normal or hard at the start with 1, 2 and 3.\"";
+    let levels = c.attempt(|c| (c.eat("easy") && c.glue() && c.eat("normal") && c.eat("or") && c.eat("hard")).then_some(()));
+    if levels.is_none() {
+        return Err(c.err("chooses what?").hint(hint));
+    }
+    if !c.eat_all("at the start") {
+        return Err(c.err("chooses when?").hint(hint));
+    }
+    if !c.eat("with") {
+        return Err(c.err("chooses with which keys?").hint(hint));
+    }
+    let mut keys = Vec::new();
+    for i in 0..3 {
+        if i > 0 {
+            c.glue();
+        }
+        match choice_key(c) {
+            Some(k) if !keys.contains(&k) => keys.push(k),
+            Some(k) => return Err(c.err(format!("the key {k} picks two levels"))),
+            None => return Err(c.err("one key for each level").hint(hint)),
+        }
+    }
+    let save = c.i;
+    c.glue();
+    let mut default = None;
+    if c.eat("or") {
+        let Some(level) = level_word(c) else {
+            return Err(c.err("or which level?").hint("\", or normal with space or after 5 seconds\""));
+        };
+        let (mut key, mut wait) = (None, None);
+        loop {
+            if c.eat("with") {
+                let Some(k) = choice_key(c) else {
+                    return Err(c.err("with which key?"));
+                };
+                if keys.contains(&k) {
+                    return Err(c.err(format!("the key {k} already picks a level")));
+                }
+                once(&mut key, k, "the key", c)?;
+            } else if let Some(n) = c.attempt(|c| {
+                if !c.eat("after") {
+                    return None;
+                }
+                let n = c.num()?;
+                (c.eat("seconds") || c.eat("second")).then_some(n)
+            }) {
+                once(&mut wait, positive(n, "the wait", c)?, "\"after\"", c)?;
+            } else {
+                return Err(c.err(format!("{} how?", LEVELS[level])).hint("\"with space\" or \"after 5 seconds\""));
+            }
+            if !c.eat("or") {
+                break;
+            }
+        }
+        default = Some((level, key, wait));
+    } else {
+        c.i = save;
+    }
+    if !c.done() {
+        return Err(c.leftover());
+    }
+    let keys: [String; 3] = keys.try_into().expect("three keys");
+    Ok(Standing::Choose { keys, default })
+}
+
+fn harder(c: &mut Cur) -> R<Standing> {
+    let mut h = Harder::default();
+    let mut any = false;
+    while !c.done() {
+        if c.glue() {
+            continue;
+        }
+        let (slot, what) = if c.eat_all("the stronger the fish pull") || c.eat_all("the stronger they pull") {
+            (&mut h.pull, "the stronger the fish pull")
+        } else if c.eat_all("the less they bite") || c.eat_all("the less the fish bite") {
+            (&mut h.bite, "the less they bite")
+        } else if c.eat_all("the louder the shout must be") {
+            (&mut h.shout, "the louder the shout must be")
+        } else if c.eat_all("the sooner they get away") || c.eat_all("the sooner the fish get away") {
+            (&mut h.escape, "the sooner they get away")
+        } else if c.eat_all("the shorter the time") {
+            (&mut h.time, "the shorter the time")
+        } else {
+            return Err(c.leftover().hint(
+                "the stronger the fish pull, the less they bite, the louder the shout must be, the sooner they get away, the shorter the time",
+            ));
+        };
+        flag(slot, what, c)?;
+        any = true;
+    }
+    if !any {
+        return Err(c.err("the harder the game, the what?").hint("\"The harder the game, the stronger the fish pull.\""));
+    }
+    Ok(Standing::Harder(h))
 }
 
 fn drawn(c: &mut Cur, kind: String) -> R<Standing> {
@@ -1462,20 +1641,24 @@ fn when(c: &mut Cur) -> R<Trigger> {
                 None => return Err(c.err(format!("{a} hits what?"))),
             }
         };
-        let cond = c.attempt(|c| {
-            if !c.eat_all("and no") {
-                return None;
-            }
-            let (t, _) = c.thing()?;
-            if c.eat_all("are left") || c.eat_all("is left") {
-                Some(Cond::NoneLeft(t))
-            } else if c.eat_all("is hooked") || c.eat_all("are hooked") {
-                Some(Cond::NoneHooked(t))
-            } else {
-                None
-            }
-        });
+        let cond = opt_cond(c);
         return Ok(Trigger::Hit { a, b, cond, jigged });
+    }
+    if !hooked && !jigged && c.eat_all("is jigged") {
+        let within = need(opt_within(c), "how near (\"within 2 units of a fish\")", c)?;
+        let within = positive(within, "\"within\"", c)?;
+        if !c.eat("of") {
+            return Err(c.err("jigged within N units of what?").hint("\"When the hook is jigged within 2 units of a fish, ...\""));
+        }
+        c.article();
+        let Some((b, _)) = c.thing() else {
+            return Err(c.err("jigged near what?").hint("\"within 2 units of a fish\""));
+        };
+        if b == a {
+            return Err(c.err(format!("a {a} can't be jigged near itself")));
+        }
+        let cond = opt_cond(c);
+        return Ok(Trigger::Jigged { a, b, within, cond });
     }
     if jigged {
         return Err(c.err(format!("what does the jigged {a} do?")).hint("\"When a jigged hook touches a fish, ...\""));
@@ -1485,6 +1668,23 @@ fn when(c: &mut Cur) -> R<Trigger> {
         return Ok(Trigger::ThingBelow(a, n));
     }
     Err(c.err(format!("don't understand what the {a} does: \"{}\"", c.rest())).hint("hits, touches or falls below"))
+}
+
+/// "and no coins are left" / "and no fish is hooked"
+fn opt_cond(c: &mut Cur) -> Option<Cond> {
+    c.attempt(|c| {
+        if !c.eat_all("and no") {
+            return None;
+        }
+        let (t, _) = c.thing()?;
+        if c.eat_all("are left") || c.eat_all("is left") {
+            Some(Cond::NoneLeft(t))
+        } else if c.eat_all("is hooked") || c.eat_all("are hooked") {
+            Some(Cond::NoneHooked(t))
+        } else {
+            None
+        }
+    })
 }
 
 // ---- actions ---------------------------------------------------------------
@@ -1693,10 +1893,23 @@ fn action(c: &mut Cur, trig: &Trigger) -> R<Action> {
         if !c.eat("bites") {
             return Err(c.leftover());
         }
-        if !matches!(trig, Trigger::Hit { b: Party::Thing(_), .. }) || !matches!(t, Target::It | Target::Named(_)) {
+        let jig = matches!(trig, Trigger::Jigged { .. });
+        if !(jig || matches!(trig, Trigger::Hit { b: Party::Thing(_), .. })) || !matches!(t, Target::It | Target::Named(_)) {
             return Err(c.err("a bite needs two things that touch").hint("\"When a hook touches a fish, the fish bites.\""));
         }
-        return end(c, Action::Bite(t));
+        if let Target::Named(n) = &t {
+            if trig.it() != Some(n.as_str()) {
+                return Err(c.err(format!("the {n} doesn't bite: the other thing does")));
+            }
+        }
+        if c.done() {
+            return Ok(Action::Bite(t, None));
+        }
+        if !jig {
+            return Err(c.err("a bite by chance is once per jig").hint("\"When the hook is jigged within 2 units of a fish, the fish bites with a chance of 30 percent.\""));
+        }
+        let chance = chance(c)?;
+        return Ok(Action::Bite(t, Some(chance)));
     }
     if !player && c.eat_all("it gets away") {
         if !matches!(trig, Trigger::AtBottom { .. } | Trigger::Landed { .. }) {
@@ -1943,6 +2156,77 @@ fn action(c: &mut Cur, trig: &Trigger) -> R<Action> {
         .hint("actions: destroy, add, the player has/loses/wins/goes back, play, show, bounce, squash, restart, start the next wave, a random X shoots, it bites, a new X comes back"))
 }
 
+/// "with a chance [per jig] of 40 percent for a perch, 20 percent for a roach and 60 percent
+/// for a lunging pike, more for a steady rhythm, less for frantic jigging and less the farther
+/// it is" (after "bites").
+fn chance(c: &mut Cur) -> R<Chance> {
+    let mut ch = Chance { odds: Vec::new(), steady: false, frantic: false, farther: false };
+    let odds = |c: &mut Cur| -> R<Option<Odds>> {
+        let Some(percent) = c.attempt(|c| {
+            let n = c.num()?;
+            c.eat("percent").then_some(n)
+        }) else {
+            return Ok(None);
+        };
+        if !(0.0..=100.0).contains(&percent) {
+            return Err(c.err(format!("a chance is 0 to 100 percent (got {percent})")));
+        }
+        let (mut kind, mut lunging) = (None, false);
+        if c.eat("for") {
+            c.article();
+            lunging = c.eat("lunging");
+            let Some((k, _)) = c.thing() else {
+                return Err(c.err("a chance for what?").hint("\"40 percent for a perch\""));
+            };
+            kind = Some(k);
+        }
+        Ok(Some(Odds { kind, lunging, percent }))
+    };
+    while !c.done() {
+        if c.glue() {
+            continue;
+        }
+        if c.eat_all("with a chance") {
+            if !ch.odds.is_empty() {
+                return Err(c.err("\"with a chance\" is given twice"));
+            }
+            c.eat_all("per jig");
+            if !c.eat("of") {
+                return Err(c.err("a chance of how much?").hint("\"with a chance of 30 percent\""));
+            }
+            match odds(c)? {
+                Some(o) => ch.odds.push(o),
+                None => return Err(c.err("a chance of how much?").hint("\"with a chance of 30 percent\"")),
+            }
+        } else if c.is_num() {
+            if ch.odds.is_empty() {
+                return Err(c.err("say \"with a chance of\" first"));
+            }
+            match odds(c)? {
+                Some(o) if o.kind.is_some() => ch.odds.push(o),
+                _ => return Err(c.err("each further chance names its fish").hint("\"20 percent for a roach\"")),
+            }
+        } else if c.eat_all("more for a steady rhythm") {
+            flag(&mut ch.steady, "more for a steady rhythm", c)?;
+        } else if c.eat_all("less for frantic jigging") {
+            flag(&mut ch.frantic, "less for frantic jigging", c)?;
+        } else if c.eat_all("less the farther it is") || c.eat_all("less the farther away it is") {
+            flag(&mut ch.farther, "less the farther it is", c)?;
+        } else {
+            return Err(c.leftover());
+        }
+    }
+    if ch.odds.is_empty() {
+        return Err(c.err("a bite by chance needs the chance").hint("\"with a chance of 30 percent\""));
+    }
+    for (i, o) in ch.odds.iter().enumerate() {
+        if ch.odds[..i].iter().any(|p| p.kind == o.kind && p.lunging == o.lunging) {
+            return Err(c.err(format!("the chance for {} is given twice", o.kind.as_deref().unwrap_or("any fish"))));
+        }
+    }
+    Ok(ch)
+}
+
 fn end(c: &Cur, a: Action) -> R<Action> {
     if c.done() {
         Ok(a)
@@ -2076,6 +2360,7 @@ pub fn parse(src: &str, lenient: bool) -> Result<GameProgram, Vec<Diag>> {
             Body::Standing(Standing::Animate { who: Who::Each(k), jigged: true, .. }) => Some(k),
             Body::Standing(Standing::Drawn { target, .. }) => Some(target),
             Body::Event { trigger: Trigger::Hit { a, jigged: true, .. }, .. } => Some(a),
+            Body::Event { trigger: Trigger::Jigged { a, .. }, .. } => Some(a),
             _ => None,
         };
         if let Some(k) = wants {
@@ -2084,6 +2369,75 @@ pub fn parse(src: &str, lenient: bool) -> Result<GameProgram, Vec<Diag>> {
                     Diag::new(format!("\"{}\": nothing jigs a {k}", s.text))
                         .hint(format!("add \"The player jigs the {k} with the up arrow, lifting it 0.8 units.\"")),
                 );
+            }
+        }
+    }
+    // A bite by chance for "a lunging pike" needs a pike that lunges.
+    let lungers: Vec<&String> = sentences
+        .iter()
+        .filter_map(|s| match &s.body {
+            Body::Standing(Standing::Swim(w)) if w.lunge.is_some() => Some(&w.kind),
+            _ => None,
+        })
+        .collect();
+    for s in &sentences {
+        if let Body::Event { actions, .. } = &s.body {
+            for a in actions {
+                if let Action::Bite(_, Some(ch)) = &a.act {
+                    for o in ch.odds.iter().filter(|o| o.lunging) {
+                        let k = o.kind.as_ref().expect("parser: a lunging what");
+                        if !lungers.contains(&k) {
+                            diags.push(Diag::new(format!("\"{}\": no {k} lunges", s.text)).hint(format!(
+                                "add \"lunging at the hook within 6 units at 9 units per second\" to the {k}'s swim sentence"
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Levels: one choice; "the harder the game" needs it and something to scale.
+    let chooses = sentences.iter().filter(|s| matches!(s.body, Body::Standing(Standing::Choose { .. }))).count();
+    let hards: Vec<&Sentence> = sentences.iter().filter(|s| matches!(s.body, Body::Standing(Standing::Harder(_)))).collect();
+    if chooses > 1 {
+        diags.push(Diag::new("the player chooses the level twice").hint("keep one \"The player chooses ...\" sentence"));
+    }
+    if hards.len() > 1 {
+        diags.push(Diag::new("\"the harder the game\" is said twice").hint("say everything a level changes in one sentence"));
+    }
+    if let Some(s) = hards.first() {
+        let Body::Standing(Standing::Harder(h)) = &s.body else { unreachable!() };
+        if chooses == 0 {
+            diags.push(
+                Diag::new(format!("\"{}\": nothing chooses how hard the game is", s.text))
+                    .hint("add \"The player chooses easy, normal or hard at the start with 1, 2 and 3.\""),
+            );
+        }
+        let has = |f: &dyn Fn(&Sentence) -> bool| sentences.iter().any(f);
+        let checks: [(bool, bool, &str); 5] = [
+            (h.pull, has(&|s| matches!(s.body, Body::Standing(Standing::Hooked { pull: Some(_), .. }))), "nothing pulls a hook down"),
+            (
+                h.bite,
+                has(&|s| matches!(&s.body, Body::Event { actions, .. } if actions.iter().any(|a| matches!(a.act, Action::Bite(_, Some(_)))))),
+                "nothing bites by chance",
+            ),
+            (h.shout, has(&|s| matches!(s.body, Body::Standing(Standing::Rise { voice: true, .. }))), "nothing listens for a shout"),
+            (h.escape, has(&|s| matches!(s.body, Body::Event { trigger: Trigger::AtBottom { .. }, .. })), "nothing gets away from the bottom"),
+            (
+                h.time,
+                has(&|s| match &s.body {
+                    Body::Event { trigger: Trigger::Time(_), .. } => true,
+                    Body::Event { actions, .. } => actions
+                        .iter()
+                        .any(|a| matches!(&a.act, Action::Show { parts, .. } if parts.iter().any(|p| matches!(p, Part::Countdown(_))))),
+                    _ => false,
+                }),
+                "no time runs out",
+            ),
+        ];
+        for (asked, there, what) in checks {
+            if asked && !there {
+                diags.push(Diag::new(format!("\"{}\": {what}, so a level can't change it", s.text)));
             }
         }
     }
@@ -2208,7 +2562,7 @@ mod tests {
             trigger,
             Trigger::Hit { a: "hook".into(), b: Party::Thing("fish".into()), cond: Some(Cond::NoneHooked("fish".into())), jigged: false }
         );
-        assert_eq!(actions[0].act, Action::Bite(Target::Named("fish".into())));
+        assert_eq!(actions[0].act, Action::Bite(Target::Named("fish".into()), None));
         let s = one("When a hooked roach reaches the hole, destroy it and a new roach comes in from the side after 2 seconds.");
         let Body::Event { trigger, actions } = s.body else { panic!() };
         assert_eq!(trigger, Trigger::Landed { kind: "roach".into(), place: "hole".into() });

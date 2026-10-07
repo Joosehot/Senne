@@ -8,10 +8,11 @@
 //! in the rest gains ground. "fighting" makes it dart from side to side
 //! (`thrash_width` at `thrash_rate`, `rest_thrash` of that while resting),
 //! turn to face where it darts, and jerk the hook sideways (`hook_jerk` of the
-//! dart; the line springs it back). Variants: `copy` (loop over a copy of
+//! dart; the line springs it back). "The harder the game, the stronger the fish pull" scales
+//! the pull by `level_pull` and the burst by `level_burst`. Variants: `copy` (loop over a copy of
 //! every catch) and `filtered` (copy only this kind's catches first).
 
-use super::{block, f, hooked_at_map, hooked_map, s, At, Emitted, GamePattern, Node, Section};
+use super::{block, f, hooked_at_map, hooked_map, maybe_leveled, s, At, Emitted, GamePattern, Node, Section};
 use crate::game::codegen::Gen;
 use crate::game::parser::Standing;
 
@@ -37,15 +38,14 @@ impl GamePattern for Hooked {
             let clock = g.clock();
             body.push(format!("let t = {clock} - {since}.get(&fish).copied().unwrap_or({clock});"));
         }
+        let stronger = g.facts.harder.pull;
         if *bursts {
-            body.push(format!(
-                "let surge = t % {} < {};",
-                f(((t.burst_secs + t.rest_secs) * 1000.0).round() / 1000.0),
-                f(t.burst_secs)
-            ));
+            let burst = maybe_leveled(g, t.burst_secs, stronger, t.level_burst);
+            body.push(format!("let surge = t % {} < {burst};", f(((t.burst_secs + t.rest_secs) * 1000.0).round() / 1000.0)));
         }
         if let Some(p) = pull {
-            let pull_line = format!("cx.move_by(&hook, vec2(0.0, -{} * dt));", f(*p));
+            let p = maybe_leveled(g, *p, stronger, t.level_pull);
+            let pull_line = format!("cx.move_by(&hook, vec2(0.0, -{p} * dt));");
             if *bursts {
                 body.extend(block("if surge", vec![pull_line]));
             } else {
